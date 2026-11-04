@@ -115,7 +115,7 @@ html, body {
 .screen.active { display: flex; }
 
 /* タイトル（背景で鹿威しが動き続ける） */
-#title-screen { justify-content: space-between; background: linear-gradient(rgba(10,18,13,.55), rgba(10,18,13,0) 40%, rgba(10,18,13,0) 60%, rgba(10,18,13,.7)); }
+#title-screen { justify-content: space-between; background: linear-gradient(rgba(10,18,13,.6), rgba(10,18,13,0) 32%, rgba(10,18,13,0) 62%, rgba(10,18,13,.75)); }
 .title-block { margin-top: 6vh; }
 .kicker { margin: 0 0 8px; font-family: system-ui, sans-serif; font-weight: 800; letter-spacing: .22em; font-size: 13px; color: var(--gold); }
 h1 {
@@ -179,8 +179,12 @@ h3 { margin: 8px 0 0; font-size: 15px; color: var(--muted); letter-spacing: .2em
 .titles li.got { color: var(--gold); }
 .titles li span:last-child { font-size: 12px; }
 
-/* 広告（デモ） */
-.screen.ad { background: #111; z-index: 30; font-family: system-ui, sans-serif; }
-.ad-tag { position: absolute; top: 12px; left: 12px; margin: 0; font-size: 12px; color: #888; border: 1px solid #555; padding: 2px 6px; }
-.ad-kind { font-size: 18px; font-weight: 700; }
-.ad-count { font-size: 48px; font-weight: 900; color: var(--muted); }
+/* 画面効果（フラッシュ・暗転） */
+#fx { position: absolute; inset: 0; pointer-events: none; }
+
+/* 読み込み */
+#loading-screen { background: radial-gradient(ellipse at 50% 40%, #24372b, #0b130e); gap: 10px; }
+.loading-title { margin: 0 0 16px; font-size: 36px; letter-spacing: .14em; font-weight: 800; }
+.progress { width: 220px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.12); overflow: hidden; }
+#progress-bar { height: 100%; width: 0%; background: var(--gold); transition: width .2s; }
+.loading-text { margin: 6px 0 0; font-size: 13px; color: var(--muted); }

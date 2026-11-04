@@ -1,7 +1,6 @@
 // 鹿威しカコーン（Japan Garden KAKOON!） ゲーム全体の状態管理
-import { AdPolicy, MockAdProvider } from './ads.js';
 import { Sound } from './audio.js';
-import { Renderer } from './renderer.js';
+import { Scene3D } from './scene3d.js';
 import { ShishiOdoshi } from './shishi.js';
 import {
   MAX_MISSES, JUDGE_WINDOWS, judge, pointsFor, comboMultiplier, levelFor, tierFor, cycleParams,
@@ -14,19 +13,19 @@ const GAMEOVER_DELAY_MS = 700;
 
 const $ = (id) => document.getElementById(id);
 const el = {
-  canvas: $('garden'), hud: $('hud'), bottom: $('bottom'),
+  canvas: $('garden'), fx: $('fx'), hud: $('hud'), bottom: $('bottom'),
+  loading: $('loading-screen'), progress: $('progress-bar'), loadingText: $('loading-text'),
   score: $('score'), combo: $('combo'), comboWrap: $('combo-wrap'), lives: $('lives'),
   hudBest: $('hud-best'), level: $('level'), judge: $('judge'), mult: $('mult'),
   tapHint: $('tap-hint'), gauge: $('gauge-fill'),
-  title: $('title-screen'), result: $('result-screen'), settings: $('settings-screen'), ad: $('ad-overlay'),
+  title: $('title-screen'), result: $('result-screen'), settings: $('settings-screen'),
   best: $('best'), titleName: $('title-name'),
   btnStart: $('btn-start'), btnSound: $('btn-sound'), btnSettings: $('btn-settings'),
   finalScore: $('final-score'), newBest: $('new-best'), rBest: $('r-best'), rPerfect: $('r-perfect'),
   rGreat: $('r-great'), rCombo: $('r-combo'), rTitle: $('r-title'),
-  btnContinue: $('btn-continue'), btnRetry: $('btn-retry'), btnHome: $('btn-home'),
+  btnRetry: $('btn-retry'), btnHome: $('btn-home'),
   optSound: $('opt-sound'), optVibe: $('opt-vibe'), records: $('records'), titles: $('titles'),
   btnSettingsClose: $('btn-settings-close'), btnReset: $('btn-reset'),
-  adKind: $('ad-kind'), adCount: $('ad-count'), btnAdClose: $('btn-ad-close'),
 };
 
 // ---------- 端末内保存（読み書きに失敗しても遊べるように） ----------
@@ -40,14 +39,11 @@ const settings = store.get('kakoon.settings', { sound: true, vibe: true });
 // ---------- 主要オブジェクト ----------
 const sound = new Sound();
 sound.setEnabled(settings.sound);
-const renderer = new Renderer(el.canvas);
+const renderer = new Scene3D(el.canvas, el.fx);
 const shishi = new ShishiOdoshi(cycleParams(3));
-const policy = new AdPolicy();
-const ads = new MockAdProvider({ fillRate: 0.9, overlay: showAdOverlay });
 
-// mode: title | play | ending | result
 const game = {
-  mode: 'title',
+  mode: 'loading',
   score: 0, combo: 0, maxCombo: 0, perfectStreak: 0, maxPerfectStreak: 0,
   successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0,
   tappedCycle: -1,       // 1サイクル1回の入力制限
@@ -55,6 +51,7 @@ const game = {
   cycleResult: null,     // 衝突前に確定した判定（衝突時の演出用）
   committed: null,
 };
+// mode: loading | title | play | ending | result
 let slowUntil = 0;
 
 // ---------- 判定 ----------
@@ -175,6 +172,7 @@ function updateTitleScreen() {
 }
 
 function showScreen(name) {
+  el.loading.classList.toggle('active', name === 'loading');
   el.title.classList.toggle('active', name === 'title');
   el.result.classList.toggle('active', name === 'result');
   const playing = name === null;
@@ -189,7 +187,7 @@ function frame(ts) {
   lastTs = ts;
   const dt = ts < slowUntil ? realDt * SLOW_SCALE : realDt;
 
-  if (game.mode !== 'result') {
+  if (game.mode !== 'result' && game.mode !== 'loading') {
     const prevCycle = shishi.cycle;
     const prevImpact = shishi.impactTime;
     const events = shishi.update(dt);
@@ -225,15 +223,14 @@ function startGame() {
   shishi.params = cycleParams(1, 0);
   shishi.nextParams = null;
   shishi.reset();
-  policy.startPlay();
   updateHud();
+  renderer.setMode('play');
   showScreen(null);
 }
 
 function endGame() {
   game.mode = 'ending';
   game.pendingLate = null;
-  policy.endPlay();
   setTimeout(showResult, GAMEOVER_DELAY_MS);
 }
 
@@ -258,48 +255,7 @@ function showResult() {
   el.rTitle.textContent = newTitles.length ? `称号獲得：${newTitles.map((t) => t.name).join('・')}` : '';
   game.mode = 'result';
   updateHud();
-  refreshContinueButton();
   showScreen('result');
-}
-
-function refreshContinueButton() {
-  const used = policy.continuesThisPlay >= policy.rules.maxContinuesPerPlay;
-  const ok = policy.canContinue(ads.isLoaded('rewarded'));
-  el.btnContinue.hidden = used;
-  el.btnContinue.disabled = !ok;
-  el.btnContinue.querySelector('.btn-sub').textContent = ok ? '広告視聴後、残機を1回回復して再開' : '広告を読み込み中…';
-}
-setInterval(() => { if (game.mode === 'result') refreshContinueButton(); }, 500);
-
-async function onContinue() {
-  if (!policy.canContinue(ads.isLoaded('rewarded'))) return;
-  const rewarded = await ads.show('rewarded');
-  if (!rewarded) { refreshContinueButton(); return; } // 最後まで見なかったら回復しない
-  policy.recordContinue();
-  policy.resumePlay();
-  game.misses = MAX_MISSES - 1; // 残機を1回回復
-  game.combo = 0;
-  game.perfectStreak = 0;
-  game.tappedCycle = -1;
-  game.pendingLate = null;
-  game.cycleResult = null;
-  shishi.params = cycleParams(levelFor(game.successes), 0);
-  shishi.nextParams = null;
-  shishi.reset();
-  game.mode = 'play';
-  updateHud();
-  showScreen(null);
-}
-
-/** リザルト画面の区切り：ここでのみインタースティシャルを判定 */
-async function leaveResult(next) {
-  if (game.mode !== 'result') return;
-  game.mode = 'leaving';
-  if (policy.onResultTransition(ads.isLoaded('interstitial'))) {
-    const shown = await ads.show('interstitial');
-    if (shown) policy.recordInterstitial();
-  }
-  next();
 }
 
 function goHome() {
@@ -307,6 +263,7 @@ function goHome() {
   game.combo = 0;
   shishi.params = cycleParams(3);
   shishi.nextParams = null;
+  renderer.setMode('title');
   updateTitleScreen();
   showScreen('title');
 }
@@ -342,34 +299,6 @@ function vibrate(pattern) {
   if (settings.vibe && navigator.vibrate) navigator.vibrate(pattern);
 }
 
-// ---------- 広告オーバーレイ（デモ用） ----------
-function showAdOverlay(kind) {
-  return new Promise((resolve) => {
-    const rewarded = kind === 'rewarded';
-    let remain = rewarded ? 5 : 3;
-    el.adKind.textContent = rewarded ? '動画広告（最後まで見るとコンティニュー）' : 'インタースティシャル広告';
-    el.adCount.textContent = remain;
-    el.btnAdClose.hidden = !rewarded; // 報酬型は途中で閉じられる（報酬なし）
-    el.ad.classList.add('active');
-    let timer = null;
-    const finish = (ok) => {
-      clearInterval(timer);
-      el.btnAdClose.onclick = null;
-      el.ad.classList.remove('active');
-      resolve(ok);
-    };
-    timer = setInterval(() => {
-      remain -= 1;
-      el.adCount.textContent = remain > 0 ? remain : '';
-      if (remain > 0) return;
-      clearInterval(timer);
-      if (rewarded) finish(true);
-      else { el.btnAdClose.hidden = false; el.btnAdClose.onclick = () => finish(true); }
-    }, 1000);
-    if (rewarded) el.btnAdClose.onclick = () => finish(false);
-  });
-}
-
 // ---------- 入力 ----------
 // 画面全体をタップ可能にする（ボタンを探す必要がない）
 el.canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); onTap(); });
@@ -380,9 +309,8 @@ document.addEventListener('keydown', (e) => {
   }
 });
 el.btnStart.addEventListener('click', startGame);
-el.btnContinue.addEventListener('click', onContinue);
-el.btnRetry.addEventListener('click', () => leaveResult(startGame));
-el.btnHome.addEventListener('click', () => leaveResult(goHome));
+el.btnRetry.addEventListener('click', () => { if (game.mode === 'result') startGame(); });
+el.btnHome.addEventListener('click', () => { if (game.mode === 'result') goHome(); });
 el.btnSound.addEventListener('click', () => setSound(!settings.sound));
 el.btnSettings.addEventListener('click', openSettings);
 el.btnSettingsClose.addEventListener('click', () => el.settings.classList.remove('active'));
@@ -402,8 +330,20 @@ window.addEventListener('resize', () => renderer.resize());
 document.addEventListener('visibilitychange', () => { lastTs = performance.now(); });
 
 updateTitleScreen();
-showScreen('title');
+showScreen('loading');
 requestAnimationFrame(frame);
 
+renderer.load((p) => { el.progress.style.width = `${Math.round(p * 100)}%`; })
+  .catch((err) => {
+    console.error(err);
+    el.loadingText.textContent = '3D表示を準備できませんでした。ページを再読み込みしてください。';
+    throw err;
+  })
+  .then(() => {
+    game.mode = 'title';
+    renderer.setMode('title');
+    showScreen('title');
+  });
+
 // 自動テスト用（URLに ?debug を付けたときのみ）
-if (new URLSearchParams(location.search).has('debug')) window.__kakoon = { game, shishi, stats: () => stats };
+if (new URLSearchParams(location.search).has('debug')) window.__kakoon = { game, shishi, renderer, stats: () => stats };

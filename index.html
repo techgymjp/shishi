@@ -7,10 +7,14 @@
   <meta name="description" content="日本庭園の鹿威しを絶妙なタイミングで鳴らすワンタップゲーム">
   <title>鹿威しカコーン｜Japan Garden KAKOON!</title>
   <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
+  </script>
 </head>
 <body>
   <div id="app">
     <canvas id="garden" aria-label="日本庭園の鹿威し"></canvas>
+    <div id="fx"></div>
 
     <!-- ゲーム画面のHUD -->
     <div id="hud" hidden>
@@ -28,8 +32,16 @@
       <div class="gauge"><div id="gauge-fill"></div><span class="gauge-label">水位</span></div>
     </div>
 
+    <!-- 読み込み中 -->
+    <section id="loading-screen" class="screen active">
+      <p class="kicker">Japan Garden KAKOON!</p>
+      <p class="loading-title">鹿威しカコーン</p>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <p id="loading-text" class="loading-text">庭園を準備しています…</p>
+    </section>
+
     <!-- タイトル画面 -->
-    <section id="title-screen" class="screen active">
+    <section id="title-screen" class="screen">
       <div class="title-block">
         <p class="kicker">Japan Garden KAKOON!</p>
         <h1>鹿威し<br>カコーン</h1>
@@ -62,14 +74,7 @@
         </dl>
         <p id="r-title" class="new-title" hidden></p>
 
-        <button id="btn-continue" class="btn primary">
-          <span class="btn-title">▶ 動画を見てコンティニュー</span>
-          <span class="btn-sub">広告視聴後、残機を1回回復して再開</span>
-        </button>
-        <button id="btn-retry" class="btn">
-          <span class="btn-title">もう一度遊ぶ</span>
-          <span class="btn-sub">広告なしで再スタート</span>
-        </button>
+        <button id="btn-retry" class="btn primary big">もう一度遊ぶ</button>
         <button id="btn-home" class="link-btn">HOME</button>
       </div>
     </section>
@@ -89,13 +94,6 @@
       </div>
     </section>
 
-    <!-- 広告（デモ用モック） -->
-    <section id="ad-overlay" class="screen ad">
-      <p class="ad-tag">広告（デモ）</p>
-      <p id="ad-kind" class="ad-kind"></p>
-      <p id="ad-count" class="ad-count"></p>
-      <button id="btn-ad-close" class="btn" hidden>閉じる ✕</button>
-    </section>
   </div>
   <script type="module" src="src/main.js"></script>
 </body>
