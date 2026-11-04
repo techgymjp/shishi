@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>鹿威しカコーン｜Japan Garden KAKOON!</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="hud">
+      <div class="hud-item"><span class="label">SCORE</span><span id="score">0</span></div>
+      <div class="hud-item"><span class="label">COMBO</span><span id="combo">0</span></div>
+      <div class="hud-item"><span class="label">LIFE</span><span id="lives"></span></div>
+    </header>
+
+    <main id="garden">
+      <div id="tubes"></div>
+      <div id="popups"></div>
+    </main>
+
+    <!-- タイトル -->
+    <section id="title-screen" class="screen active">
+      <h1>鹿威し<br>カコーン</h1>
+      <p class="sub">Japan Garden KAKOON!</p>
+      <p class="howto">竹に水がたまったら<b>タップ</b>して<br>「カコーン！」と鳴らそう。<br>
+        <span class="zone-perfect">金色ゾーン</span>でPERFECT。<br>あふれさせるとライフが減ります。</p>
+      <p class="best">BEST <span id="best">0</span></p>
+      <button id="btn-start" class="btn primary">はじめる</button>
+    </section>
+
+    <!-- ゲームオーバー -->
+    <section id="gameover-screen" class="screen">
+      <h2>GAME OVER</h2>
+      <p id="final-score" class="final-score">0</p>
+      <p class="label">YOUR SCORE</p>
+      <p id="new-best" class="new-best" hidden>NEW BEST!</p>
+
+      <button id="btn-continue" class="btn primary">
+        <span class="btn-title">▶ 動画を見てコンティニュー</span>
+        <span class="btn-sub">広告視聴後、残機を1回回復して再開</span>
+      </button>
+      <button id="btn-retry" class="btn">
+        <span class="btn-title">もう一度遊ぶ</span>
+        <span class="btn-sub">広告なしで再スタート</span>
+      </button>
+    </section>
+
+    <!-- 広告（デモ用モック） -->
+    <section id="ad-overlay" class="screen ad">
+      <p class="ad-tag">広告（デモ）</p>
+      <p id="ad-kind" class="ad-kind"></p>
+      <p id="ad-count" class="ad-count"></p>
+      <button id="btn-ad-close" class="btn" hidden>閉じる ✕</button>
+    </section>
+  </div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
