@@ -1,317 +1,409 @@
-// 鹿威しカコーン（Japan Garden KAKOON!） メインゲーム
+// 鹿威しカコーン（Japan Garden KAKOON!） ゲーム全体の状態管理
 import { AdPolicy, MockAdProvider } from './ads.js';
+import { Sound } from './audio.js';
+import { Renderer } from './renderer.js';
+import { ShishiOdoshi } from './shishi.js';
+import {
+  MAX_MISSES, JUDGE_WINDOWS, judge, pointsFor, comboMultiplier, levelFor, tierFor, cycleParams,
+  TITLES, unlockedTitles, currentTitle, emptyStats, commitPlay,
+} from './rules.js';
 
-const TUBE_COUNT = 3;
-const MAX_LIVES = 3;
-const PERFECT_MIN = 0.72;   // 金色ゾーン
-const PERFECT_MAX = 0.94;
-const GOOD_MIN = 0.45;
-const TIP_MS = 380;          // 傾いてから戻るまで
+const PERFECT_SLOW_MS = 200;   // PERFECT時のスロー演出
+const SLOW_SCALE = 0.3;
+const GAMEOVER_DELAY_MS = 700;
 
 const $ = (id) => document.getElementById(id);
 const el = {
-  score: $('score'), combo: $('combo'), lives: $('lives'), best: $('best'),
-  tubes: $('tubes'), popups: $('popups'),
-  title: $('title-screen'), gameover: $('gameover-screen'), ad: $('ad-overlay'),
-  finalScore: $('final-score'), newBest: $('new-best'),
-  btnStart: $('btn-start'), btnContinue: $('btn-continue'), btnRetry: $('btn-retry'),
+  canvas: $('garden'), hud: $('hud'), bottom: $('bottom'),
+  score: $('score'), combo: $('combo'), comboWrap: $('combo-wrap'), lives: $('lives'),
+  hudBest: $('hud-best'), level: $('level'), judge: $('judge'), mult: $('mult'),
+  tapHint: $('tap-hint'), gauge: $('gauge-fill'),
+  title: $('title-screen'), result: $('result-screen'), settings: $('settings-screen'), ad: $('ad-overlay'),
+  best: $('best'), titleName: $('title-name'),
+  btnStart: $('btn-start'), btnSound: $('btn-sound'), btnSettings: $('btn-settings'),
+  finalScore: $('final-score'), newBest: $('new-best'), rBest: $('r-best'), rPerfect: $('r-perfect'),
+  rGreat: $('r-great'), rCombo: $('r-combo'), rTitle: $('r-title'),
+  btnContinue: $('btn-continue'), btnRetry: $('btn-retry'), btnHome: $('btn-home'),
+  optSound: $('opt-sound'), optVibe: $('opt-vibe'), records: $('records'), titles: $('titles'),
+  btnSettingsClose: $('btn-settings-close'), btnReset: $('btn-reset'),
   adKind: $('ad-kind'), adCount: $('ad-count'), btnAdClose: $('btn-ad-close'),
 };
 
-// ---------- 保存（失敗しても動くように） ----------
+// ---------- 端末内保存（読み書きに失敗しても遊べるように） ----------
 const store = {
-  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* noop */ } },
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : { ...d, ...JSON.parse(v) }; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 保存不可 */ } },
 };
+let stats = store.get('kakoon.stats', emptyStats());
+const settings = store.get('kakoon.settings', { sound: true, vibe: true });
 
-// ---------- サウンド（Web Audio で「カコーン」を合成） ----------
-let audioCtx = null;
-function ensureAudio() {
-  if (!audioCtx) {
-    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { audioCtx = null; }
-  }
-  if (audioCtx?.state === 'suspended') audioCtx.resume();
-}
-function playKakoon(strength = 1) {
-  if (!audioCtx) return;
-  const t = audioCtx.currentTime;
-  // 竹が石を打つ「カッ」＋余韻の「コーン」
-  [[1250, 0.06, 0.5], [620, 0.5, 0.35], [930, 0.35, 0.15]].forEach(([freq, dur, vol]) => {
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.type = 'triangle';
-    o.frequency.setValueAtTime(freq, t);
-    o.frequency.exponentialRampToValueAtTime(freq * 0.92, t + dur);
-    g.gain.setValueAtTime(vol * strength, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(audioCtx.destination);
-    o.start(t);
-    o.stop(t + dur + 0.02);
-  });
-}
-function playSplash() {
-  if (!audioCtx) return;
-  const t = audioCtx.currentTime;
-  const len = Math.floor(audioCtx.sampleRate * 0.3);
-  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-  const src = audioCtx.createBufferSource();
-  const f = audioCtx.createBiquadFilter();
-  const g = audioCtx.createGain();
-  f.type = 'lowpass'; f.frequency.value = 900;
-  g.gain.value = 0.35;
-  src.buffer = buf;
-  src.connect(f).connect(g).connect(audioCtx.destination);
-  src.start(t);
-}
-
-// ---------- 鹿威し ----------
-const tubes = [];
-function buildTubes() {
-  el.tubes.innerHTML = '';
-  tubes.length = 0;
-  for (let i = 0; i < TUBE_COUNT; i++) {
-    const unit = document.createElement('div');
-    unit.className = 'unit';
-    unit.innerHTML = `
-      <div class="spout"></div><div class="drip"></div>
-      <div class="tube">
-        <div class="zone" style="bottom:${PERFECT_MIN * 100}%;height:${(PERFECT_MAX - PERFECT_MIN) * 100}%"></div>
-        <div class="water"></div>
-      </div>
-      <div class="pivot"></div><div class="stone"></div>`;
-    const tube = { unit, tubeEl: unit.querySelector('.tube'), waterEl: unit.querySelector('.water'), fill: 0, rate: 0, tipping: false };
-    unit.addEventListener('pointerdown', (e) => { e.preventDefault(); tapTube(tube); });
-    el.tubes.appendChild(unit);
-    tubes.push(tube);
-  }
-}
-
-// ---------- 状態 ----------
-const state = {
-  running: false, score: 0, combo: 0, lives: MAX_LIVES, elapsed: 0, lastTs: 0,
-  best: store.get('kakoon.best', 0),
-};
-
+// ---------- 主要オブジェクト ----------
+const sound = new Sound();
+sound.setEnabled(settings.sound);
+const renderer = new Renderer(el.canvas);
+const shishi = new ShishiOdoshi(cycleParams(3));
 const policy = new AdPolicy();
 const ads = new MockAdProvider({ fillRate: 0.9, overlay: showAdOverlay });
 
-// 時間経過で水の勢いが増す
-function baseRate() {
-  return 0.16 + Math.min(state.elapsed, 120) * 0.0045; // 1秒あたりの満水率
-}
-function resetTube(t, initial = false) {
-  t.fill = initial ? Math.random() * 0.35 : 0;
-  t.rate = baseRate() * (0.7 + Math.random() * 0.6);
-}
+// mode: title | play | ending | result
+const game = {
+  mode: 'title',
+  score: 0, combo: 0, maxCombo: 0, perfectStreak: 0, maxPerfectStreak: 0,
+  successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0,
+  tappedCycle: -1,       // 1サイクル1回の入力制限
+  pendingLate: null,     // 衝突後の「遅め」タップ受付 { cycle, impactTime, result? }
+  cycleResult: null,     // 衝突前に確定した判定（衝突時の演出用）
+  committed: null,
+};
+let slowUntil = 0;
 
-function tapTube(t) {
-  if (!state.running || t.tipping) return;
-  ensureAudio();
-  const f = t.fill;
-  const rect = t.unit.getBoundingClientRect();
-  const garden = el.popups.getBoundingClientRect();
-  const x = rect.left - garden.left + rect.width / 2;
-  const y = rect.top - garden.top + rect.height * 0.15;
+// ---------- 判定 ----------
+function onTap() {
+  if (game.mode !== 'play') return;
+  const now = shishi.time;
 
-  if (f < GOOD_MIN) {
-    // 早すぎ：鳴らない。コンボだけ切れる
-    state.combo = 0;
-    popup('はやい…', 'early', x, y);
-    t.tubeEl.classList.remove('shake'); void t.tubeEl.offsetWidth; t.tubeEl.classList.add('shake');
-    updateHud();
+  // 衝突直後の遅めのタップは、直前のサイクルとして判定
+  const late = game.pendingLate;
+  if (late && game.tappedCycle !== late.cycle && now - late.impactTime <= JUDGE_WINDOWS.GOOD) {
+    game.tappedCycle = late.cycle;
+    game.pendingLate = null;
+    applyResult(judge(now - late.impactTime), now - late.impactTime);
     return;
   }
-  const perfect = f >= PERFECT_MIN && f <= PERFECT_MAX;
-  if (perfect) {
-    state.combo += 1;
-    state.score += 100 + Math.min(state.combo - 1, 20) * 10;
-    popup(state.combo > 1 ? `カコーン！ ×${state.combo}` : 'カコーン！', 'perfect', x, y);
+  // 水が溜まっている間のタップは無視（ペナルティなし）
+  if (shishi.phase === 'fill' || game.tappedCycle === shishi.cycle) return;
+
+  game.tappedCycle = shishi.cycle;
+  const delta = now - shishi.impactTime;
+  const result = judge(delta);
+  game.cycleResult = result;
+  applyResult(result, delta);
+}
+
+function applyResult(result, delta) {
+  if (result === 'MISS') {
+    game.misses += 1;
+    game.combo = 0;
+    game.perfectStreak = 0;
+    showJudge('MISS', delta < 0 ? 'はやい' : 'おそい');
+    vibrate([40, 60, 40]);
   } else {
-    state.combo = 0;
-    state.score += 30;
-    popup('コーン', 'good', x, y);
+    game.combo += 1;
+    game.successes += 1;
+    game.maxCombo = Math.max(game.maxCombo, game.combo);
+    if (result === 'PERFECT') {
+      game.perfects += 1;
+      game.perfectStreak += 1;
+      game.maxPerfectStreak = Math.max(game.maxPerfectStreak, game.perfectStreak);
+      slowUntil = performance.now() + PERFECT_SLOW_MS;
+      vibrate(30);
+    } else {
+      game.perfectStreak = 0;
+      if (result === 'GREAT') game.greats += 1; else game.goods += 1;
+      vibrate(15);
+    }
+    game.score += pointsFor(result, game.combo);
+    showJudge(result);
+    const m = comboMultiplier(game.combo);
+    if (m > 1 && comboMultiplier(game.combo - 1) < m) flashMultiplier(`コンボ倍率 ×${m.toFixed(1)}`);
   }
-  playKakoon(perfect ? 1 : 0.6);
-  tip(t);
-  updateHud();
+  renderer.judgeEffect(result);
+  sound.judge(result);
+  updateHud(true);
+  if (game.misses >= MAX_MISSES) endGame();
 }
 
-function tip(t) {
-  t.tipping = true;
-  t.tubeEl.classList.add('tip');
-  t.fill = 0;
-  setTimeout(() => {
-    t.tubeEl.classList.remove('tip');
-    t.tipping = false;
-    resetTube(t);
-  }, TIP_MS);
+/** 衝突のたび：音を鳴らし、未入力なら遅めのタップを待ってからMISSにする */
+function onImpact(impactTime, cycle) {
+  const r = game.cycleResult;
+  const strength = r === 'PERFECT' ? 1.15 : r === 'GREAT' ? 1 : r === 'GOOD' ? 0.85 : 0.7;
+  sound.kakoon(game.mode === 'title' ? 0.7 : strength);
+  renderer.impact(game.mode === 'title' ? 0.6 : strength);
+  game.cycleResult = null;
+
+  if (game.mode !== 'play') return;
+  if (game.tappedCycle !== cycle) game.pendingLate = { cycle, impactTime };
+  shishi.setParams(cycleParams(levelFor(game.successes), game.combo));
 }
 
-function overflow(t) {
-  const rect = t.unit.getBoundingClientRect();
-  const garden = el.popups.getBoundingClientRect();
-  popup('あふれた！', 'miss', rect.left - garden.left + rect.width / 2, rect.top - garden.top + rect.height * 0.15);
-  playSplash();
-  state.combo = 0;
-  state.lives -= 1;
-  if (navigator.vibrate) navigator.vibrate(120);
-  tip(t);
-  updateHud();
-  if (state.lives <= 0) gameOver();
-}
-
-function popup(text, cls, x, y) {
-  const p = document.createElement('div');
-  p.className = `popup ${cls}`;
-  p.textContent = text;
-  p.style.left = `${x}px`;
-  p.style.top = `${y}px`;
-  el.popups.appendChild(p);
-  // 画面端で切れないように位置を補正
-  const half = p.offsetWidth / 2 + 8;
-  p.style.left = `${Math.max(half, Math.min(el.popups.clientWidth - half, x))}px`;
-  setTimeout(() => p.remove(), 900);
-}
-
-function render() {
-  for (const t of tubes) {
-    t.waterEl.style.height = `${Math.min(t.fill, 1) * 100}%`;
-    t.waterEl.classList.toggle('warn', t.fill > PERFECT_MAX);
-  }
-}
-
-function loop(ts) {
-  if (!state.running) return;
-  const dt = Math.min((ts - state.lastTs) / 1000, 0.05);
-  state.lastTs = ts;
-  state.elapsed += dt;
-  for (const t of tubes) {
-    if (t.tipping) continue;
-    t.fill += t.rate * dt;
-    if (t.fill >= 1) {
-      overflow(t);
-      if (!state.running) break;
+function checkLateMiss() {
+  const late = game.pendingLate;
+  if (!late || game.mode !== 'play') return;
+  if (shishi.time - late.impactTime > JUDGE_WINDOWS.GOOD) {
+    game.pendingLate = null;
+    if (game.tappedCycle !== late.cycle) {
+      game.tappedCycle = late.cycle;
+      applyResult('MISS', 1);
     }
   }
-  render();
-  if (state.running) requestAnimationFrame(loop);
 }
 
-function updateHud() {
-  el.score.textContent = state.score.toLocaleString();
-  el.combo.textContent = state.combo;
-  el.lives.textContent = '●'.repeat(Math.max(state.lives, 0)) + '○'.repeat(Math.max(MAX_LIVES - state.lives, 0));
-  el.best.textContent = state.best.toLocaleString();
+// ---------- 表示 ----------
+function showJudge(result, sub = '') {
+  el.judge.className = 'judge';
+  el.judge.innerHTML = sub ? `${result}<small>${sub}</small>` : result;
+  void el.judge.offsetWidth;
+  el.judge.className = `judge ${result} show`;
 }
 
-function showScreen(screen) {
-  for (const s of [el.title, el.gameover]) s.classList.toggle('active', s === screen);
+function flashMultiplier(text) {
+  el.mult.textContent = text;
+  el.mult.classList.remove('show');
+  void el.mult.offsetWidth;
+  el.mult.classList.add('show');
 }
 
-function run() {
-  state.running = true;
-  state.lastTs = performance.now();
-  requestAnimationFrame(loop);
+function updateHud(bump = false) {
+  el.score.textContent = game.score.toLocaleString();
+  el.combo.textContent = game.combo;
+  el.comboWrap.classList.toggle('zero', game.combo === 0);
+  if (bump && game.combo > 0) {
+    el.comboWrap.classList.remove('bump'); void el.comboWrap.offsetWidth; el.comboWrap.classList.add('bump');
+  }
+  const left = Math.max(MAX_MISSES - game.misses, 0);
+  el.lives.textContent = '●'.repeat(left) + '○'.repeat(MAX_MISSES - left);
+  el.hudBest.textContent = Math.max(stats.best, game.score).toLocaleString();
+  const lv = levelFor(game.successes);
+  el.level.textContent = `Lv.${lv} ${tierFor(lv)}`;
+}
+
+function updateTitleScreen() {
+  el.best.textContent = stats.best.toLocaleString();
+  const t = currentTitle(stats);
+  el.titleName.textContent = t ? `称号：${t.name}` : '';
+  el.btnSound.textContent = settings.sound ? '🔊' : '🔇';
+}
+
+function showScreen(name) {
+  el.title.classList.toggle('active', name === 'title');
+  el.result.classList.toggle('active', name === 'result');
+  const playing = name === null;
+  el.hud.hidden = !playing && name !== 'result';
+  el.bottom.hidden = !playing;
+}
+
+// ---------- メインループ ----------
+let lastTs = performance.now();
+function frame(ts) {
+  const realDt = Math.min((ts - lastTs) / 1000, 0.05);
+  lastTs = ts;
+  const dt = ts < slowUntil ? realDt * SLOW_SCALE : realDt;
+
+  if (game.mode !== 'result') {
+    const prevCycle = shishi.cycle;
+    const prevImpact = shishi.impactTime;
+    const events = shishi.update(dt);
+    for (const ev of events) {
+      if (ev === 'pour') { sound.pour(); renderer.splash(0.8); }
+      if (ev === 'impact') onImpact(prevImpact, prevCycle);
+    }
+    checkLateMiss();
+  }
+  renderer.update(realDt);
+
+  // タップのタイミングが近づくと光る
+  let glow = 0;
+  if (game.mode === 'play' && shishi.phase !== 'fill' && game.tappedCycle !== shishi.cycle) {
+    const remain = shishi.impactTime - shishi.time;
+    glow = Math.max(0, 1 - remain / 0.6);
+  }
+  renderer.draw(shishi, { glow });
+  el.tapHint.classList.toggle('hot', glow > 0.4);
+  el.gauge.style.width = `${(shishi.fill * 100).toFixed(1)}%`;
+
+  requestAnimationFrame(frame);
 }
 
 // ---------- ゲームの流れ ----------
 function startGame() {
-  ensureAudio();
-  Object.assign(state, { score: 0, combo: 0, lives: MAX_LIVES, elapsed: 0 });
-  tubes.forEach((t) => resetTube(t, true));
+  sound.unlock();
+  Object.assign(game, {
+    mode: 'play', score: 0, combo: 0, maxCombo: 0, perfectStreak: 0, maxPerfectStreak: 0,
+    successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0,
+    tappedCycle: -1, pendingLate: null, cycleResult: null, committed: null,
+  });
+  shishi.params = cycleParams(1, 0);
+  shishi.nextParams = null;
+  shishi.reset();
   policy.startPlay();
   updateHud();
-  render();
   showScreen(null);
-  run();
 }
 
-function gameOver() {
-  state.running = false;
+function endGame() {
+  game.mode = 'ending';
+  game.pendingLate = null;
   policy.endPlay();
-  const isBest = state.score > state.best;
-  if (isBest) { state.best = state.score; store.set('kakoon.best', state.best); }
-  el.finalScore.textContent = state.score.toLocaleString();
-  el.newBest.hidden = !isBest;
+  setTimeout(showResult, GAMEOVER_DELAY_MS);
+}
+
+function showResult() {
+  const before = new Set(unlockedTitles(stats).map((t) => t.id));
+  const prevBest = stats.best;
+  const res = commitPlay(stats, {
+    score: game.score, perfects: game.perfects, maxCombo: game.maxCombo, maxPerfectStreak: game.maxPerfectStreak,
+  }, game.committed);
+  stats = res.stats;
+  game.committed = res.committed;
+  store.set('kakoon.stats', stats);
+
+  const newTitles = unlockedTitles(stats).filter((t) => !before.has(t.id));
+  el.finalScore.textContent = game.score.toLocaleString();
+  el.newBest.hidden = !(game.score > prevBest);
+  el.rBest.textContent = stats.best.toLocaleString();
+  el.rPerfect.textContent = game.perfects;
+  el.rGreat.textContent = game.greats;
+  el.rCombo.textContent = game.maxCombo;
+  el.rTitle.hidden = newTitles.length === 0;
+  el.rTitle.textContent = newTitles.length ? `称号獲得：${newTitles.map((t) => t.name).join('・')}` : '';
+  game.mode = 'result';
   updateHud();
   refreshContinueButton();
-  showScreen(el.gameover);
+  showScreen('result');
 }
 
-// 広告の読み込み状況に合わせてコンティニューボタンを更新
 function refreshContinueButton() {
   const used = policy.continuesThisPlay >= policy.rules.maxContinuesPerPlay;
   const ok = policy.canContinue(ads.isLoaded('rewarded'));
-  el.btnContinue.disabled = !ok;
   el.btnContinue.hidden = used;
-  el.btnContinue.querySelector('.btn-sub').textContent = ok
-    ? '広告視聴後、残機を1回回復して再開'
-    : '広告を読み込み中…';
+  el.btnContinue.disabled = !ok;
+  el.btnContinue.querySelector('.btn-sub').textContent = ok ? '広告視聴後、残機を1回回復して再開' : '広告を読み込み中…';
 }
-setInterval(() => { if (el.gameover.classList.contains('active')) refreshContinueButton(); }, 500);
+setInterval(() => { if (game.mode === 'result') refreshContinueButton(); }, 500);
 
 async function onContinue() {
   if (!policy.canContinue(ads.isLoaded('rewarded'))) return;
   const rewarded = await ads.show('rewarded');
-  if (!rewarded) { refreshContinueButton(); return; } // 途中で閉じたら報酬なし
+  if (!rewarded) { refreshContinueButton(); return; } // 最後まで見なかったら回復しない
   policy.recordContinue();
-  state.lives = 1;
-  state.combo = 0;
-  tubes.forEach((t) => { t.tipping = false; t.tubeEl.classList.remove('tip'); resetTube(t); });
   policy.resumePlay();
+  game.misses = MAX_MISSES - 1; // 残機を1回回復
+  game.combo = 0;
+  game.perfectStreak = 0;
+  game.tappedCycle = -1;
+  game.pendingLate = null;
+  game.cycleResult = null;
+  shishi.params = cycleParams(levelFor(game.successes), 0);
+  shishi.nextParams = null;
+  shishi.reset();
+  game.mode = 'play';
   updateHud();
-  render();
   showScreen(null);
-  run();
 }
 
-async function onRetry() {
-  // リザルト画面の区切りでのみインタースティシャル判定
+/** リザルト画面の区切り：ここでのみインタースティシャルを判定 */
+async function leaveResult(next) {
+  if (game.mode !== 'result') return;
+  game.mode = 'leaving';
   if (policy.onResultTransition(ads.isLoaded('interstitial'))) {
     const shown = await ads.show('interstitial');
     if (shown) policy.recordInterstitial();
   }
-  startGame();
+  next();
 }
 
-// ---------- 広告オーバーレイ（デモ） ----------
+function goHome() {
+  game.mode = 'title';
+  game.combo = 0;
+  shishi.params = cycleParams(3);
+  shishi.nextParams = null;
+  updateTitleScreen();
+  showScreen('title');
+}
+
+// ---------- 設定 ----------
+function openSettings() {
+  el.optSound.checked = settings.sound;
+  el.optVibe.checked = settings.vibe;
+  const rows = [
+    ['累計プレイ回数', stats.plays],
+    ['累計スコア', stats.totalScore],
+    ['最高スコア', stats.best],
+    ['PERFECT累計', stats.perfectTotal],
+    ['最大コンボ', stats.maxCombo],
+    ['最高連続PERFECT', stats.bestPerfectStreak],
+  ];
+  el.records.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v.toLocaleString()}</dd>`).join('');
+  const got = new Set(unlockedTitles(stats).map((t) => t.id));
+  el.titles.innerHTML = TITLES.map((t) =>
+    `<li class="${got.has(t.id) ? 'got' : ''}"><span>${got.has(t.id) ? '★' : '☆'} ${t.name}</span><span>${t.desc}</span></li>`).join('');
+  el.settings.classList.add('active');
+}
+
+function setSound(on) {
+  settings.sound = on;
+  store.set('kakoon.settings', settings);
+  sound.unlock();
+  sound.setEnabled(on);
+  updateTitleScreen();
+}
+
+function vibrate(pattern) {
+  if (settings.vibe && navigator.vibrate) navigator.vibrate(pattern);
+}
+
+// ---------- 広告オーバーレイ（デモ用） ----------
 function showAdOverlay(kind) {
   return new Promise((resolve) => {
-    const rewardedAd = kind === 'rewarded';
-    let remain = rewardedAd ? 5 : 3;
-    el.adKind.textContent = rewardedAd ? '動画広告（最後まで見るとコンティニュー）' : 'インタースティシャル広告';
+    const rewarded = kind === 'rewarded';
+    let remain = rewarded ? 5 : 3;
+    el.adKind.textContent = rewarded ? '動画広告（最後まで見るとコンティニュー）' : 'インタースティシャル広告';
     el.adCount.textContent = remain;
-    el.btnAdClose.hidden = !rewardedAd; // 報酬型は途中で閉じられる（報酬なし）
+    el.btnAdClose.hidden = !rewarded; // 報酬型は途中で閉じられる（報酬なし）
     el.ad.classList.add('active');
+    let timer = null;
     const finish = (ok) => {
       clearInterval(timer);
       el.btnAdClose.onclick = null;
       el.ad.classList.remove('active');
       resolve(ok);
     };
-    const timer = setInterval(() => {
+    timer = setInterval(() => {
       remain -= 1;
       el.adCount.textContent = remain > 0 ? remain : '';
-      if (remain <= 0) {
-        if (rewardedAd) finish(true);
-        else { el.btnAdClose.hidden = false; el.btnAdClose.onclick = () => finish(true); clearInterval(timer); }
-      }
+      if (remain > 0) return;
+      clearInterval(timer);
+      if (rewarded) finish(true);
+      else { el.btnAdClose.hidden = false; el.btnAdClose.onclick = () => finish(true); }
     }, 1000);
-    if (rewardedAd) el.btnAdClose.onclick = () => finish(false);
+    if (rewarded) el.btnAdClose.onclick = () => finish(false);
   });
 }
 
-// タブを離れたら一時停止の代わりに経過時間を飛ばさない
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && state.running) state.lastTs = performance.now();
+// ---------- 入力 ----------
+// 画面全体をタップ可能にする（ボタンを探す必要がない）
+el.canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); onTap(); });
+document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  if (e.code === 'Space' || e.code === 'Enter') {
+    if (game.mode === 'play') { e.preventDefault(); onTap(); }
+  }
 });
-
 el.btnStart.addEventListener('click', startGame);
 el.btnContinue.addEventListener('click', onContinue);
-el.btnRetry.addEventListener('click', onRetry);
+el.btnRetry.addEventListener('click', () => leaveResult(startGame));
+el.btnHome.addEventListener('click', () => leaveResult(goHome));
+el.btnSound.addEventListener('click', () => setSound(!settings.sound));
+el.btnSettings.addEventListener('click', openSettings);
+el.btnSettingsClose.addEventListener('click', () => el.settings.classList.remove('active'));
+el.optSound.addEventListener('change', () => setSound(el.optSound.checked));
+el.optVibe.addEventListener('change', () => { settings.vibe = el.optVibe.checked; store.set('kakoon.settings', settings); });
+el.btnReset.addEventListener('click', () => {
+  if (!confirm('記録と称号をすべてリセットしますか？')) return;
+  stats = emptyStats();
+  store.set('kakoon.stats', stats);
+  openSettings();
+  updateTitleScreen();
+});
+// タイトル画面でも最初の操作で音を有効化（自動再生制限への対応）
+el.title.addEventListener('pointerdown', () => sound.unlock(), { once: true });
 
-buildTubes();
-updateHud();
-render();
+window.addEventListener('resize', () => renderer.resize());
+document.addEventListener('visibilitychange', () => { lastTs = performance.now(); });
+
+updateTitleScreen();
+showScreen('title');
+requestAnimationFrame(frame);
+
+// 自動テスト用（URLに ?debug を付けたときのみ）
+if (new URLSearchParams(location.search).has('debug')) window.__kakoon = { game, shishi, stats: () => stats };
