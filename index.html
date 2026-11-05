@@ -25,8 +25,10 @@
       </div>
       <div class="hud-right"><span class="label">BEST</span><span id="hud-best">0</span><span id="level" class="level"></span></div>
     </div>
+    <div id="timing" hidden><div class="t-target"></div><div id="approach" class="t-approach"></div></div>
     <div id="judge" class="judge"></div>
     <div id="mult" class="mult"></div>
+    <div id="banner" class="banner"></div>
     <div id="bottom" hidden>
       <div id="tap-hint" class="tap-hint">TAP!</div>
       <div class="gauge"><div id="gauge-fill"></div><span class="gauge-label">水位</span></div>
@@ -51,7 +53,7 @@
         <p class="best-line">BEST SCORE <b id="best">0</b></p>
         <p id="title-name" class="title-name"></p>
         <button id="btn-start" class="btn primary big">START</button>
-        <p class="howto">竹筒が戻って石に当たる瞬間にタップ</p>
+        <p class="howto">水がこぼれて軽くなった竹筒が<b>石を打つ瞬間</b>にタップ<br><small>縮んでくる輪が石の輪と重なったとき</small></p>
       </div>
       <div class="corner">
         <button id="btn-sound" class="icon-btn" aria-label="サウンド切り替え">🔊</button>
@@ -85,6 +87,18 @@
         <h3>設定</h3>
         <label class="row"><span>サウンド</span><input id="opt-sound" type="checkbox"></label>
         <label class="row"><span>振動</span><input id="opt-vibe" type="checkbox"></label>
+        <label class="row"><span>練習（ギミック）</span>
+          <select id="opt-gimmick">
+            <option value="auto">自動（レベルで変化）</option>
+            <option value="none">なし</option>
+            <option value="rain">☔ 雨</option>
+            <option value="wind">🍃 風</option>
+            <option value="night">🌙 夜</option>
+            <option value="size">🎋 竹筒のサイズ</option>
+            <option value="twin">⇄ 2本の鹿威し</option>
+            <option value="all">すべて</option>
+          </select>
+        </label>
         <h3>記録</h3>
         <dl id="records" class="records"></dl>
         <h3>称号</h3>

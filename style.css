@@ -188,3 +188,27 @@ h3 { margin: 8px 0 0; font-size: 15px; color: var(--muted); letter-spacing: .2em
 .progress { width: 220px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.12); overflow: hidden; }
 #progress-bar { height: 100%; width: 0%; background: var(--gold); transition: width .2s; }
 .loading-text { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+
+/* タイミングリング */
+#timing { position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform; }
+#timing[hidden] { display: none; }
+.t-target, .t-approach { position: absolute; inset: 0; border-radius: 50%; }
+.t-target { border: 2px solid rgba(255,255,255,.75); box-shadow: 0 0 10px rgba(0,0,0,.4); }
+.t-approach { border: 3px solid rgba(242,193,78,.95); will-change: transform; }
+#timing.perfect .t-target { border-color: var(--gold); box-shadow: 0 0 18px rgba(242,193,78,.9); }
+.judge.HINT { color: rgba(255,255,255,.75); font-size: 24px; }
+.howto small { font-size: 11px; opacity: .85; }
+
+/* レベルアップ・ギミックのお知らせ */
+.banner {
+  position: absolute; left: 50%; top: 15%; transform: translateX(-50%);
+  min-width: 220px; padding: 10px 18px; border-radius: 14px; text-align: center;
+  background: rgba(10,18,13,.72); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 4px; pointer-events: none; opacity: 0;
+  font-family: system-ui, sans-serif;
+}
+.banner b { color: var(--gold); font-size: 18px; letter-spacing: .08em; }
+.banner span { font-size: 13px; color: var(--text); }
+.banner.show { animation: banner 3.2s ease-out forwards; }
+@keyframes banner { 0% { opacity: 0; } 10% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+.row select { font: inherit; font-size: 14px; background: rgba(0,0,0,.4); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; max-width: 55%; }

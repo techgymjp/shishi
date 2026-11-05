@@ -79,3 +79,28 @@ test('鹿威し: 水が溜まる → 傾く → 戻って石に当たる', () =>
   assert.equal(s.cycle, 1);
   assert.equal(s.params.fillDuration, 1); // 次のサイクルから新しい難易度
 });
+
+test('追加ギミック：レベルごとに登場し、7以降は組み合わせ', async () => {
+  const { gimmicksForLevel, gimmicksForPractice } = await import('../src/rules.js');
+  assert.equal(gimmicksForLevel(1).rain, false);
+  assert.equal(gimmicksForLevel(2).rain, true);
+  assert.equal(gimmicksForLevel(3).wind, true);
+  assert.equal(gimmicksForLevel(4).night, true);
+  assert.notEqual(gimmicksForLevel(5).size, 1);
+  assert.equal(gimmicksForLevel(6).twin, true);
+  const g = gimmicksForLevel(8, () => 0.3);
+  const on = ['rain', 'wind', 'night', 'twin'].filter((k) => g[k]).length + (g.size !== 1 ? 1 : 0);
+  assert.equal(on, 2);
+  assert.equal(gimmicksForPractice('night', 1).night, true);
+  assert.equal(gimmicksForPractice('none', 9).twin, false);
+});
+
+test('ギミックが鹿威しの動きに効く', () => {
+  const base = cycleParams(1, 0, () => 0.5);
+  const rain = cycleParams(1, 0, () => 0.5, { rain: true, size: 1 });
+  assert.ok(rain.fillDuration < base.fillDuration);           // 雨：流入が速い
+  const big = cycleParams(1, 0, () => 0.5, { size: 1.3 });
+  assert.ok(big.fillDuration > base.fillDuration);            // 太い竹筒：溜まるのに時間がかかる
+  const w = [0, 1].map((r) => cycleParams(1, 0, () => r, { wind: true, size: 1 }).returnDuration);
+  assert.ok(w[0] < w[1]);                                      // 風：戻る速さが変わる
+});

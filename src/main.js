@@ -5,11 +5,14 @@ import { ShishiOdoshi } from './shishi.js';
 import {
   MAX_MISSES, JUDGE_WINDOWS, judge, pointsFor, comboMultiplier, levelFor, tierFor, cycleParams,
   TITLES, unlockedTitles, currentTitle, emptyStats, commitPlay,
+  NO_GIMMICKS, GIMMICK_INFO, gimmicksForPractice,
 } from './rules.js';
 
 const PERFECT_SLOW_MS = 200;   // PERFECT時のスロー演出
 const SLOW_SCALE = 0.3;
 const GAMEOVER_DELAY_MS = 700;
+const TAP_ACCEPT = 0.6;        // 衝突のこの秒数前より早いタップは判定しない（MISSにしない）
+const RING_TIME = 0.9;         // タイミングリングが縮み始める時間
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -17,7 +20,7 @@ const el = {
   loading: $('loading-screen'), progress: $('progress-bar'), loadingText: $('loading-text'),
   score: $('score'), combo: $('combo'), comboWrap: $('combo-wrap'), lives: $('lives'),
   hudBest: $('hud-best'), level: $('level'), judge: $('judge'), mult: $('mult'),
-  tapHint: $('tap-hint'), gauge: $('gauge-fill'),
+  tapHint: $('tap-hint'), gauge: $('gauge-fill'), timing: $('timing'), approach: $('approach'),
   title: $('title-screen'), result: $('result-screen'), settings: $('settings-screen'),
   best: $('best'), titleName: $('title-name'),
   btnStart: $('btn-start'), btnSound: $('btn-sound'), btnSettings: $('btn-settings'),
@@ -26,6 +29,7 @@ const el = {
   btnRetry: $('btn-retry'), btnHome: $('btn-home'),
   optSound: $('opt-sound'), optVibe: $('opt-vibe'), records: $('records'), titles: $('titles'),
   btnSettingsClose: $('btn-settings-close'), btnReset: $('btn-reset'),
+  optGimmick: $('opt-gimmick'), banner: $('banner'),
 };
 
 // ---------- 端末内保存（読み書きに失敗しても遊べるように） ----------
@@ -34,50 +38,122 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 保存不可 */ } },
 };
 let stats = store.get('kakoon.stats', emptyStats());
-const settings = store.get('kakoon.settings', { sound: true, vibe: true });
+const settings = store.get('kakoon.settings', { sound: true, vibe: true, gimmick: 'auto' });
 
 // ---------- 主要オブジェクト ----------
 const sound = new Sound();
 sound.setEnabled(settings.sound);
 const renderer = new Scene3D(el.canvas, el.fx);
-const shishi = new ShishiOdoshi(cycleParams(3));
+// 鹿威し（2本目はギミック「2本の鹿威し」で登場）
+const units = [0, 1].map(() => ({
+  sim: new ShishiOdoshi(cycleParams(3)),
+  active: false,
+  tappedCycle: -1,       // 1サイクル1回の入力制限
+  pendingLate: null,     // 衝突後の「遅め」タップ受付 { cycle, impactTime }
+  cycleResult: null,     // 衝突前に確定した判定（衝突時の演出用）
+}));
+units[0].active = true;
+const shishi = units[0].sim;
+let gimmicks = { ...NO_GIMMICKS };
 
 const game = {
   mode: 'loading',
   score: 0, combo: 0, maxCombo: 0, perfectStreak: 0, maxPerfectStreak: 0,
-  successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0,
-  tappedCycle: -1,       // 1サイクル1回の入力制限
-  pendingLate: null,     // 衝突後の「遅め」タップ受付 { cycle, impactTime, result? }
-  cycleResult: null,     // 衝突前に確定した判定（衝突時の演出用）
+  successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0, level: 1,
   committed: null,
 };
 // mode: loading | title | play | ending | result
 let slowUntil = 0;
 
+// ---------- ギミック ----------
+function resetUnit(u, params) {
+  u.sim.params = params;
+  u.sim.nextParams = null;
+  u.sim.reset();
+  u.tappedCycle = -1;
+  u.pendingLate = null;
+  u.cycleResult = null;
+}
+
+function applyGimmicks(g, announce = false) {
+  const prev = gimmicks;
+  gimmicks = { ...g };
+  renderer.setGimmicks(gimmicks);
+  sound.setWeather(gimmicks);
+  const lv = game.level;
+  if (gimmicks.twin && !units[1].active) {
+    // 2本目：1本目と半周期ずらして交互に鳴るようにする
+    const u = units[1];
+    resetUnit(u, cycleParams(lv, game.combo, Math.random, gimmicks));
+    const p = u.sim.params;
+    u.sim.update((p.fillDuration + p.pourDuration + p.returnDuration) / 2);
+    u.active = true;
+  } else if (!gimmicks.twin && units[1].active) {
+    units[1].active = false;
+    units[1].pendingLate = null;
+  }
+  for (const u of units) if (u.active) u.sim.setParams(cycleParams(lv, game.combo, Math.random, gimmicks));
+  if (announce) {
+    const added = Object.keys(GIMMICK_INFO).filter((k) => (k === 'size' ? gimmicks.size !== 1 && gimmicks.size !== prev.size : gimmicks[k] && !prev[k]));
+    showBanner(`Lv.${lv} ${tierFor(lv)}`, added.map((k) => `${GIMMICK_INFO[k].icon} ${k === 'size' ? (gimmicks.size > 1 ? '太い竹筒' : '細い竹筒') : GIMMICK_INFO[k].desc}`));
+  }
+}
+
+function showBanner(title, lines) {
+  el.banner.innerHTML = `<b>${title}</b>${lines.map((l) => `<span>${l}</span>`).join('')}`;
+  el.banner.classList.remove('show');
+  void el.banner.offsetWidth;
+  el.banner.classList.add('show');
+}
+
+function gimmickIcons() {
+  return Object.keys(GIMMICK_INFO).filter((k) => (k === 'size' ? gimmicks.size !== 1 : gimmicks[k])).map((k) => GIMMICK_INFO[k].icon).join('');
+}
+
 // ---------- 判定 ----------
 function onTap() {
   if (game.mode !== 'play') return;
-  const now = shishi.time;
 
-  // 衝突直後の遅めのタップは、直前のサイクルとして判定
-  const late = game.pendingLate;
-  if (late && game.tappedCycle !== late.cycle && now - late.impactTime <= JUDGE_WINDOWS.GOOD) {
-    game.tappedCycle = late.cycle;
-    game.pendingLate = null;
-    applyResult(judge(now - late.impactTime), now - late.impactTime);
+  // 判定の対象：遅めのタップ待ち、またはこれから衝突する鹿威しのうち、衝突時刻に最も近いもの
+  let best = null;
+  units.forEach((u, i) => {
+    if (!u.active) return;
+    const now = u.sim.time;
+    const late = u.pendingLate;
+    if (late && u.tappedCycle !== late.cycle && now - late.impactTime <= JUDGE_WINDOWS.GOOD) {
+      const d = now - late.impactTime;
+      if (!best || Math.abs(d) < Math.abs(best.delta)) best = { i, u, delta: d, late: true };
+    }
+    if (u.tappedCycle !== u.sim.cycle && u.sim.phase !== 'fill') {
+      const d = now - u.sim.impactTime;
+      if (-d <= TAP_ACCEPT && (!best || Math.abs(d) < Math.abs(best.delta))) best = { i, u, delta: d, late: false };
+    }
+  });
+
+  if (!best) {
+    // まだ早い：水が一番溜まっている竹筒が、水の量に応じて沈んで戻る（判定はしない）
+    const fills = units.map((u) => (u.active && u.sim.phase === 'fill' ? u.sim.fill : -1));
+    const i = fills.indexOf(Math.max(...fills));
+    if (i >= 0 && fills[i] >= 0) renderer.nudgeTube('dip', 1, fills[i], i);
+    else renderer.nudgeTube('wobble', 0.8, 0, 0);
+    showHint('まだ');
     return;
   }
-  // 水が溜まっている間のタップは無視（ペナルティなし）
-  if (shishi.phase === 'fill' || game.tappedCycle === shishi.cycle) return;
 
-  game.tappedCycle = shishi.cycle;
-  const delta = now - shishi.impactTime;
+  const { i, u, delta } = best;
   const result = judge(delta);
-  game.cycleResult = result;
-  applyResult(result, delta);
+  if (best.late) {
+    u.tappedCycle = u.pendingLate.cycle;
+    u.pendingLate = null;
+  } else {
+    u.tappedCycle = u.sim.cycle;
+    u.cycleResult = result;
+  }
+  renderer.nudgeTube(result === 'MISS' ? 'wobble' : 'push', result === 'PERFECT' ? 1.2 : 1, 0, i);
+  applyResult(result, delta, i);
 }
 
-function applyResult(result, delta) {
+function applyResult(result, delta, i = 0) {
   if (result === 'MISS') {
     game.misses += 1;
     game.combo = 0;
@@ -104,35 +180,45 @@ function applyResult(result, delta) {
     const m = comboMultiplier(game.combo);
     if (m > 1 && comboMultiplier(game.combo - 1) < m) flashMultiplier(`コンボ倍率 ×${m.toFixed(1)}`);
   }
-  renderer.judgeEffect(result);
+  renderer.judgeEffect(result, i);
   sound.judge(result);
+  // レベルアップでギミックが変わる
+  const lv = levelFor(game.successes);
+  if (lv !== game.level) {
+    game.level = lv;
+    applyGimmicks(gimmicksForPractice(settings.gimmick, lv), true);
+  }
   updateHud(true);
   if (game.misses >= MAX_MISSES) endGame();
 }
 
 /** 衝突のたび：音を鳴らし、未入力なら遅めのタップを待ってからMISSにする */
-function onImpact(impactTime, cycle) {
-  const r = game.cycleResult;
+function onImpact(i, impactTime, cycle) {
+  const u = units[i];
+  const r = u.cycleResult;
   const strength = r === 'PERFECT' ? 1.15 : r === 'GREAT' ? 1 : r === 'GOOD' ? 0.85 : 0.7;
   sound.kakoon(game.mode === 'title' ? 0.7 : strength);
-  renderer.impact(game.mode === 'title' ? 0.6 : strength);
-  game.cycleResult = null;
+  renderer.impact(game.mode === 'title' ? 0.6 : strength, i);
+  u.cycleResult = null;
 
   if (game.mode !== 'play') return;
-  if (game.tappedCycle !== cycle) game.pendingLate = { cycle, impactTime };
-  shishi.setParams(cycleParams(levelFor(game.successes), game.combo));
+  if (u.tappedCycle !== cycle) u.pendingLate = { cycle, impactTime };
+  u.sim.setParams(cycleParams(game.level, game.combo, Math.random, gimmicks));
 }
 
 function checkLateMiss() {
-  const late = game.pendingLate;
-  if (!late || game.mode !== 'play') return;
-  if (shishi.time - late.impactTime > JUDGE_WINDOWS.GOOD) {
-    game.pendingLate = null;
-    if (game.tappedCycle !== late.cycle) {
-      game.tappedCycle = late.cycle;
-      applyResult('MISS', 1);
+  if (game.mode !== 'play') return;
+  units.forEach((u, i) => {
+    const late = u.pendingLate;
+    if (!late || !u.active) return;
+    if (u.sim.time - late.impactTime > JUDGE_WINDOWS.GOOD) {
+      u.pendingLate = null;
+      if (u.tappedCycle !== late.cycle && game.mode === 'play') {
+        u.tappedCycle = late.cycle;
+        applyResult('MISS', 1, i);
+      }
     }
-  }
+  });
 }
 
 // ---------- 表示 ----------
@@ -141,6 +227,13 @@ function showJudge(result, sub = '') {
   el.judge.innerHTML = sub ? `${result}<small>${sub}</small>` : result;
   void el.judge.offsetWidth;
   el.judge.className = `judge ${result} show`;
+}
+
+function showHint(text) {
+  el.judge.className = 'judge';
+  el.judge.textContent = text;
+  void el.judge.offsetWidth;
+  el.judge.className = 'judge HINT show';
 }
 
 function flashMultiplier(text) {
@@ -161,7 +254,7 @@ function updateHud(bump = false) {
   el.lives.textContent = '●'.repeat(left) + '○'.repeat(MAX_MISSES - left);
   el.hudBest.textContent = Math.max(stats.best, game.score).toLocaleString();
   const lv = levelFor(game.successes);
-  el.level.textContent = `Lv.${lv} ${tierFor(lv)}`;
+  el.level.textContent = `Lv.${lv} ${tierFor(lv)} ${gimmickIcons()}`;
 }
 
 function updateTitleScreen() {
@@ -188,28 +281,54 @@ function frame(ts) {
   const dt = ts < slowUntil ? realDt * SLOW_SCALE : realDt;
 
   if (game.mode !== 'result' && game.mode !== 'loading') {
-    const prevCycle = shishi.cycle;
-    const prevImpact = shishi.impactTime;
-    const events = shishi.update(dt);
-    for (const ev of events) {
-      if (ev === 'pour') { sound.pour(); renderer.splash(0.8); }
-      if (ev === 'impact') onImpact(prevImpact, prevCycle);
-    }
+    units.forEach((u, i) => {
+      if (!u.active) return;
+      const prevCycle = u.sim.cycle;
+      const prevImpact = u.sim.impactTime;
+      const events = u.sim.update(dt);
+      for (const ev of events) {
+        if (ev === 'pour') { sound.pour(); renderer.splash(0.8, i); }
+        if (ev === 'impact') onImpact(i, prevImpact, prevCycle);
+      }
+    });
     checkLateMiss();
   }
   renderer.update(realDt);
 
   // タップのタイミングが近づくと光る
-  let glow = 0;
-  if (game.mode === 'play' && shishi.phase !== 'fill' && game.tappedCycle !== shishi.cycle) {
-    const remain = shishi.impactTime - shishi.time;
-    glow = Math.max(0, 1 - remain / 0.6);
-  }
-  renderer.draw(shishi, { glow });
-  el.tapHint.classList.toggle('hot', glow > 0.4);
-  el.gauge.style.width = `${(shishi.fill * 100).toFixed(1)}%`;
+  const glows = units.map((u) => {
+    if (game.mode !== 'play' || !u.active || u.sim.phase === 'fill' || u.tappedCycle === u.sim.cycle) return 0;
+    return Math.max(0, 1 - (u.sim.impactTime - u.sim.time) / 0.6);
+  });
+  renderer.draw(units.map((u) => (u.active ? u.sim : null)), { glows });
+  updateTimingRing();
+  const maxFill = Math.max(...units.map((u) => (u.active && u.sim.phase === 'fill' ? u.sim.fill : 0)));
+  sound.setWater(maxFill, units.some((u) => u.active && u.sim.phase === 'fill') ? 'tube' : 'stone');
+  el.tapHint.classList.toggle('hot', Math.max(...glows) > 0.4);
+  el.gauge.style.width = `${(maxFill * 100).toFixed(1)}%`;
 
   requestAnimationFrame(frame);
+}
+
+/** 石に向かって縮むリング：内側の輪と重なった瞬間が衝突（PERFECT） */
+function updateTimingRing() {
+  let pick = -1, remain = Infinity;
+  units.forEach((u, i) => {
+    if (!u.active || u.sim.phase === 'fill' || u.tappedCycle === u.sim.cycle) return;
+    const r = u.sim.impactTime - u.sim.time;
+    if (r < remain) { remain = r; pick = i; }
+  });
+  const show = game.mode === 'play' && pick >= 0 && remain < RING_TIME && remain > -0.2;
+  el.timing.hidden = !show;
+  if (!show) return;
+  const pos = renderer.contactScreen(pick);
+  if (!pos) { el.timing.hidden = true; return; }
+  const size = Math.max(56, el.canvas.clientWidth * 0.17);
+  el.timing.style.transform = `translate(${pos.x - size / 2}px, ${pos.y - size / 2}px)`;
+  el.timing.style.width = el.timing.style.height = `${size}px`;
+  const k = Math.max(remain, 0) / RING_TIME;
+  el.approach.style.transform = `scale(${1 + k * 2.2})`;
+  el.timing.classList.toggle('perfect', Math.abs(remain) <= JUDGE_WINDOWS.PERFECT);
 }
 
 // ---------- ゲームの流れ ----------
@@ -217,12 +336,12 @@ function startGame() {
   sound.unlock();
   Object.assign(game, {
     mode: 'play', score: 0, combo: 0, maxCombo: 0, perfectStreak: 0, maxPerfectStreak: 0,
-    successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0,
-    tappedCycle: -1, pendingLate: null, cycleResult: null, committed: null,
+    successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0, level: 1, committed: null,
   });
-  shishi.params = cycleParams(1, 0);
-  shishi.nextParams = null;
-  shishi.reset();
+  units[1].active = false;
+  const g = gimmicksForPractice(settings.gimmick, 1);
+  resetUnit(units[0], cycleParams(1, 0, Math.random, g));
+  applyGimmicks(g);
   updateHud();
   renderer.setMode('play');
   showScreen(null);
@@ -230,7 +349,7 @@ function startGame() {
 
 function endGame() {
   game.mode = 'ending';
-  game.pendingLate = null;
+  for (const u of units) u.pendingLate = null;
   setTimeout(showResult, GAMEOVER_DELAY_MS);
 }
 
@@ -261,17 +380,26 @@ function showResult() {
 function goHome() {
   game.mode = 'title';
   game.combo = 0;
-  shishi.params = cycleParams(3);
-  shishi.nextParams = null;
+  game.level = 1;
+  showTitleGarden();
   renderer.setMode('title');
   updateTitleScreen();
   showScreen('title');
+}
+
+/** タイトル画面の庭：練習でギミックを選んでいればその様子を見せる */
+function showTitleGarden() {
+  const g = settings.gimmick && settings.gimmick !== 'auto' ? gimmicksForPractice(settings.gimmick, 1) : { ...NO_GIMMICKS };
+  if (!g.twin) units[1].active = false;
+  applyGimmicks(g);
+  for (const u of units) if (u.active) u.sim.setParams(cycleParams(3, 0, Math.random, g));
 }
 
 // ---------- 設定 ----------
 function openSettings() {
   el.optSound.checked = settings.sound;
   el.optVibe.checked = settings.vibe;
+  el.optGimmick.value = settings.gimmick || 'auto';
   const rows = [
     ['累計プレイ回数', stats.plays],
     ['累計スコア', stats.totalScore],
@@ -316,6 +444,11 @@ el.btnSettings.addEventListener('click', openSettings);
 el.btnSettingsClose.addEventListener('click', () => el.settings.classList.remove('active'));
 el.optSound.addEventListener('change', () => setSound(el.optSound.checked));
 el.optVibe.addEventListener('change', () => { settings.vibe = el.optVibe.checked; store.set('kakoon.settings', settings); });
+el.optGimmick.addEventListener('change', () => {
+  settings.gimmick = el.optGimmick.value;
+  store.set('kakoon.settings', settings);
+  if (game.mode === 'title') showTitleGarden();
+});
 el.btnReset.addEventListener('click', () => {
   if (!confirm('記録と称号をすべてリセットしますか？')) return;
   stats = emptyStats();
@@ -342,8 +475,9 @@ renderer.load((p) => { el.progress.style.width = `${Math.round(p * 100)}%`; })
   .then(() => {
     game.mode = 'title';
     renderer.setMode('title');
+    showTitleGarden();
     showScreen('title');
   });
 
 // 自動テスト用（URLに ?debug を付けたときのみ）
-if (new URLSearchParams(location.search).has('debug')) window.__kakoon = { game, shishi, renderer, stats: () => stats };
+if (new URLSearchParams(location.search).has('debug')) window.__kakoon = { game, shishi, units, renderer, stats: () => stats, applyGimmicks, settings };
