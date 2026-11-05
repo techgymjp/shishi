@@ -16,6 +16,9 @@
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="style.css">
+  <!-- 広告のモードとバージョン（アプリ用のビルドで scripts/build-web.js が書き換える） -->
+  <script src="ads-config.js"></script>
+  <script src="build-info.js"></script>
   <script type="importmap">
     { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
   </script>
@@ -41,6 +44,7 @@
     <div id="bottom" hidden>
       <div id="tap-hint" class="tap-hint">TAP!</div>
     </div>
+    <button id="btn-pause" class="icon-btn pause-btn" aria-label="一時停止" data-i18n-aria hidden>Ⅱ</button>
 
     <!-- 読み込み中 -->
     <section id="loading-screen" class="screen active">
@@ -60,12 +64,51 @@
       <div class="title-bottom">
         <p class="best-line">BEST SCORE <b id="best">0</b></p>
         <p id="title-name" class="title-name"></p>
-        <button id="btn-start" class="btn primary big">START</button>
-        <p class="howto" data-i18n-html>水がこぼれて軽くなった竹筒が<b>石を打つ瞬間</b>にタップ<br><small>縮んでくる輪が石の輪と重なったとき</small></p>
+        <button id="btn-start" class="btn primary big" data-i18n>▶ プレイ</button>
+        <button id="btn-howto" class="btn" data-i18n>あそびかた</button>
+        <p id="legal" class="legal">
+          <span id="build-info"></span>
+          <a id="privacy-link" href="https://techgym.jp/privacy-policy/" target="_blank" rel="noopener" data-i18n>プライバシーポリシー</a>
+          <span id="ad-privacy" hidden>｜<a href="#" id="ad-privacy-link" data-i18n>広告の設定</a></span>
+        </p>
       </div>
       <div class="corner">
         <button id="btn-sound" class="icon-btn" aria-label="サウンド切り替え" data-i18n-aria>🔊</button>
         <button id="btn-settings" class="icon-btn" aria-label="設定" data-i18n-aria>⚙</button>
+      </div>
+    </section>
+
+    <!-- あそびかた -->
+    <section id="howto-screen" class="screen">
+      <div class="panel">
+        <h3 data-i18n>あそびかた</h3>
+        <ol class="howto-list">
+          <li data-i18n-html>筧（かけい）の水が竹筒に溜まると、口側がゆっくり沈んで水がこぼれます。</li>
+          <li data-i18n-html>軽くなった竹筒が石を打つ<b>「カコーン！」の瞬間</b>に、画面をタップします。</li>
+          <li data-i18n-html>石に向かって縮んでくる<b>輪</b>が、石の上の輪と重なったときが PERFECT です。</li>
+          <li data-i18n-html>判定は PERFECT・GREAT・GOOD・MISS。連続で成功するとコンボ倍率が上がります。</li>
+          <li data-i18n-html><b>MISS が 3 回</b>でゲームオーバー。レベルが上がると、雨・風・夜・竹筒のサイズ・2 本の鹿威しが登場します。</li>
+        </ol>
+        <button id="btn-howto-play" class="btn primary big" data-i18n>▶ プレイ</button>
+        <button id="btn-howto-back" class="btn" data-i18n>タイトルへ</button>
+      </div>
+    </section>
+
+    <!-- 一時停止 -->
+    <section id="pause-screen" class="screen">
+      <div class="panel">
+        <h3 data-i18n>一時停止</h3>
+        <button id="btn-resume" class="btn primary big" data-i18n>再開</button>
+        <button id="btn-pause-home" class="btn" data-i18n>タイトルへ</button>
+      </div>
+    </section>
+
+    <!-- コンティニュー（リワード広告。アプリのみ） -->
+    <section id="continue-screen" class="screen">
+      <div class="panel">
+        <p id="continue-note" class="continue-note"></p>
+        <button id="btn-continue" class="btn primary"></button>
+        <button id="btn-continue-skip" class="btn"></button>
       </div>
     </section>
 
@@ -83,6 +126,7 @@
           <div><dt>MAX COMBO</dt><dd id="r-combo">0</dd></div>
         </dl>
         <p id="r-title" class="new-title" hidden></p>
+        <p id="r-continue" class="r-continue" hidden></p>
 
         <button id="btn-retry" class="btn primary big" data-i18n>もう一度遊ぶ</button>
         <button id="btn-share" class="btn share-btn"><span aria-hidden="true">↗</span> <span data-i18n>シェア</span></button>
@@ -92,7 +136,7 @@
           <a id="share-fb" class="share-item" target="_blank" rel="noopener">Facebook</a>
           <button id="share-copy" class="share-item" data-i18n>コピー</button>
         </div>
-        <button id="btn-home" class="link-btn">HOME</button>
+        <button id="btn-home" class="link-btn" data-i18n>タイトルへ</button>
       </div>
     </section>
 

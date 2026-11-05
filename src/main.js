@@ -1,5 +1,6 @@
 // 鹿威しカコーン（Japan Garden KAKOON!） ゲーム全体の状態管理
 import { Sound } from './audio.js';
+import { Ads, plugin } from './admob.js';
 import { t, setLang, detectLang, applyDom, getLang } from './i18n.js';
 import { Scene3D } from './scene3d.js';
 import { ShishiOdoshi } from './shishi.js';
@@ -14,6 +15,10 @@ const SLOW_SCALE = 0.3;
 const GAMEOVER_DELAY_MS = 700;
 const TAP_ACCEPT = 0.6;        // 衝突のこの秒数前より早いタップは判定しない（MISSにしない）
 const RING_TIME = 0.9;         // タイミングリングが縮み始める時間
+const CONTINUE_MAX = 2;        // リワード広告のコンティニュー：1ゲームで使える回数
+const CONTINUE_DELAY_MS = 2200; // 3回目のMISSを見届けられるよう、少し待ってから案内を出す
+const CONTINUE_WAIT = 6;       // 案内は6秒で自動的に結果画面へ進む
+const PRIVACY_URL = { ja: 'https://techgym.jp/privacy-policy/', en: 'https://techgym.jp/privacy-policy-en/' };
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -31,6 +36,11 @@ const el = {
   optSound: $('opt-sound'), optVibe: $('opt-vibe'), records: $('records'), titles: $('titles'),
   btnSettingsClose: $('btn-settings-close'), btnReset: $('btn-reset'),
   optGimmick: $('opt-gimmick'), banner: $('banner'), optBgm: $('opt-bgm'), optLang: $('opt-lang'),
+  btnHowto: $('btn-howto'), howto: $('howto-screen'), btnHowtoPlay: $('btn-howto-play'), btnHowtoBack: $('btn-howto-back'),
+  pause: $('pause-screen'), btnPause: $('btn-pause'), btnResume: $('btn-resume'), btnPauseHome: $('btn-pause-home'),
+  cont: $('continue-screen'), contNote: $('continue-note'), btnCont: $('btn-continue'), btnContSkip: $('btn-continue-skip'),
+  rContinue: $('r-continue'), buildInfo: $('build-info'), privacyLink: $('privacy-link'),
+  adPrivacy: $('ad-privacy'), adPrivacyLink: $('ad-privacy-link'), app: $('app'),
   btnShare: $('btn-share'), shareMenu: $('share-menu'), shareX: $('share-x'), shareLine: $('share-line'),
   shareFb: $('share-fb'), shareCopy: $('share-copy'),
 };
@@ -67,6 +77,9 @@ const game = {
   score: 0, combo: 0, maxCombo: 0, perfectStreak: 0, maxPerfectStreak: 0,
   successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0, level: 1,
   committed: null,
+  paused: false,          // 一時停止中（戻るボタン・Ⅱボタン・アプリの切り替え）
+  continues: 0,           // リワード広告でコンティニューした回数
+  beforeMiss: null,       // 直前の MISS の前のコンボ（コンティニューで戻す）
 };
 // mode: loading | title | play | ending | result
 let slowUntil = 0;
@@ -161,6 +174,7 @@ function onTap() {
 
 function applyResult(result, delta, i = 0) {
   if (result === 'MISS') {
+    game.beforeMiss = { combo: game.combo, perfectStreak: game.perfectStreak };
     game.misses += 1;
     game.combo = 0;
     game.perfectStreak = 0;
@@ -273,20 +287,34 @@ function updateTitleScreen() {
 function showScreen(name) {
   el.loading.classList.toggle('active', name === 'loading');
   el.title.classList.toggle('active', name === 'title');
+  el.howto.classList.toggle('active', name === 'howto');
+  el.pause.classList.toggle('active', name === 'pause');
+  el.cont.classList.toggle('active', name === 'continue');
   el.result.classList.toggle('active', name === 'result');
   const playing = name === null;
-  el.hud.hidden = !playing && name !== 'result';
+  el.hud.hidden = !playing && !['result', 'pause', 'continue'].includes(name);
   el.bottom.hidden = !playing;
+  el.btnPause.hidden = !playing;
+}
+
+/** バナー広告：タイトル・あそびかた・一時停止・結果画面だけ（プレイ中は出さない） */
+function updateBanner() {
+  // 全画面広告をはさんで画面を移る間は出さない（広告を閉じた直後に一瞬出るのを防ぐ）
+  const want = !adBusy && (['title', 'howto', 'result'].includes(game.mode) || game.paused);
+  Ads.setBanner(want);
+  el.app.classList.toggle('banner-on', want && Ads.canBanner);
 }
 
 // ---------- メインループ ----------
 let lastTs = performance.now();
 function frame(ts) {
-  const realDt = Math.min((ts - lastTs) / 1000, 0.05);
+  let realDt = Math.min((ts - lastTs) / 1000, 0.05);
   lastTs = ts;
+  if (game.paused || Ads.showing) realDt = 0;   // 一時停止中・広告の表示中は時間を止める
   const dt = ts < slowUntil ? realDt * SLOW_SCALE : realDt;
+  updateBanner();
 
-  if (game.mode !== 'result' && game.mode !== 'loading') {
+  if (game.mode !== 'result' && game.mode !== 'loading' && dt > 0) {
     units.forEach((u, i) => {
       if (!u.active) return;
       const prevCycle = u.sim.cycle;
@@ -337,11 +365,106 @@ function updateTimingRing() {
 }
 
 // ---------- ゲームの流れ ----------
+// ---------- 全画面広告（アプリのみ）----------
+// 「プレイ」（タイトル・あそびかたから）、「タイトルへ」（あそびかた・一時停止・結果画面から）、
+// 一時停止からの「再開」、結果画面の「もう一度遊ぶ」のたびに毎回出す
+let adBusy = false;
+async function withInterstitial(next) {
+  if (adBusy) return;
+  if (Ads.available) {
+    adBusy = true;
+    updateBanner();
+    await Ads.showInterstitial(3000);
+    adBusy = false;
+  }
+  next();
+}
+function play() { sound.unlock(); withInterstitial(() => { if (['title', 'howto'].includes(game.mode)) startGame(); }); }
+function retry() { withInterstitial(() => { if (game.mode === 'result') startGame(); }); }
+function backToTitle() { withInterstitial(() => { if (['howto', 'result'].includes(game.mode) || game.paused) goHome(); }); }
+function openHowto() {
+  if (game.mode !== 'title' || adBusy) return;
+  game.mode = 'howto';
+  showScreen('howto');
+}
+
+// ---------- 一時停止 ----------
+function pauseGame() {
+  if (game.mode !== 'play' || game.paused) return;
+  game.paused = true;
+  el.timing.hidden = true;
+  showScreen('pause');
+  sound.suspend();
+}
+function resumeFromPause() {
+  withInterstitial(() => {
+    if (!game.paused) return;
+    game.paused = false;
+    lastTs = performance.now();
+    showScreen(null);
+    sound.resume();
+  });
+}
+
+// ---------- コンティニュー（リワード広告のチート。アプリのみ・1ゲーム2回まで）----------
+// 3回目の MISS でゲームオーバーになったら、少し待ってから「広告を見て続ける」を出す。
+// 最後まで見たら、その MISS を取り消して（MISS 2回・コンボも戻す）続きから遊べる。6秒で自動的に結果画面へ
+const cont = { timer: null, t: 0, busy: false };
+function offerContinue() {
+  if (game.mode !== 'ending') return;
+  game.mode = 'continue';
+  cont.t = CONTINUE_WAIT;
+  cont.busy = false;
+  el.contNote.innerHTML = t('MISS が 3 回になりました。<br>広告を見ると MISS を 1 つ取り消して続けられます（あと {0} 回）。', CONTINUE_MAX - game.continues);
+  el.btnCont.disabled = false;
+  el.btnCont.textContent = t('▶ 広告を見て続ける');
+  el.btnContSkip.textContent = t('結果へ（{0}）', cont.t);
+  showScreen('continue');
+  clearInterval(cont.timer);
+  cont.timer = setInterval(() => {
+    if (cont.busy || Ads.showing) return;
+    cont.t -= 1;
+    el.btnContSkip.textContent = t('結果へ（{0}）', Math.max(cont.t, 0));
+    if (cont.t <= 0) skipContinue();
+  }, 1000);
+}
+function skipContinue() {
+  if (game.mode !== 'continue') return;
+  clearInterval(cont.timer);
+  showResult();
+}
+async function watchContinue() {
+  if (game.mode !== 'continue' || cont.busy) return;
+  cont.busy = true;
+  el.btnCont.disabled = true;
+  el.btnCont.textContent = t('広告を読み込んでいます…');
+  const r = await Ads.showRewarded();
+  clearInterval(cont.timer);
+  if (game.mode !== 'continue') return;
+  if (r === 'unavailable') {
+    el.contNote.textContent = t('広告を読み込めませんでした');
+    setTimeout(showResult, 2000);
+    return;
+  }
+  if (r !== 'rewarded') { showResult(); return; }
+  // 3回目の MISS を取り消して、続きから
+  game.continues += 1;
+  game.misses = MAX_MISSES - 1;
+  if (game.beforeMiss) { game.combo = game.beforeMiss.combo; game.perfectStreak = game.beforeMiss.perfectStreak; }
+  for (const u of units) { u.pendingLate = null; u.tappedCycle = u.sim.cycle; }
+  game.mode = 'play';
+  lastTs = performance.now();
+  updateHud();
+  showScreen(null);
+}
+
 function startGame() {
   sound.unlock();
+  clearInterval(cont.timer);
   Object.assign(game, {
     mode: 'play', score: 0, combo: 0, maxCombo: 0, perfectStreak: 0, maxPerfectStreak: 0,
     successes: 0, misses: 0, perfects: 0, greats: 0, goods: 0, level: 1, committed: null,
+    paused: false, continues: 0, beforeMiss: null,
   });
   units[1].active = false;
   const g = gimmicksForPractice(settings.gimmick, 1);
@@ -356,7 +479,8 @@ function startGame() {
 function endGame() {
   game.mode = 'ending';
   for (const u of units) u.pendingLate = null;
-  setTimeout(showResult, GAMEOVER_DELAY_MS);
+  if (Ads.canReward && game.continues < CONTINUE_MAX) setTimeout(offerContinue, CONTINUE_DELAY_MS);
+  else setTimeout(() => { if (game.mode === 'ending') showResult(); }, GAMEOVER_DELAY_MS);
 }
 
 function showResult() {
@@ -378,6 +502,8 @@ function showResult() {
   el.rCombo.textContent = game.maxCombo;
   el.rTitle.hidden = newTitles.length === 0;
   el.rTitle.textContent = newTitles.length ? t('称号獲得：{0}', newTitles.map((x) => t(x.name)).join(getLang() === 'en' ? ', ' : '・')) : '';
+  el.rContinue.hidden = game.continues === 0;
+  el.rContinue.textContent = game.continues ? t('コンティニュー {0} 回', game.continues) : '';
   game.mode = 'result';
   el.shareMenu.hidden = true;
   updateHud();
@@ -385,6 +511,9 @@ function showResult() {
 }
 
 function goHome() {
+  clearInterval(cont.timer);
+  game.paused = false;
+  sound.resume();
   game.mode = 'title';
   game.combo = 0;
   game.level = 1;
@@ -407,11 +536,18 @@ const SHARE_URL = 'https://techgym.jp/column/claude-code-game-shishi/';
 
 function shareText() {
   return t('鹿威しカコーンで{0}点！ PERFECT {1}回・最大コンボ {2} #鹿威しカコーン',
-    game.score.toLocaleString(), game.perfects, game.maxCombo);
+    game.score.toLocaleString(), game.perfects, game.maxCombo)
+    + (game.continues ? t('（コンティニュー {0} 回）', game.continues) : '');
 }
 
 async function onShare() {
   const text = shareText();
+  // アプリ：Android の共有メニュー
+  const nativeShare = plugin('Share');
+  if (nativeShare) {
+    try { await nativeShare.share({ title: t('鹿威しカコーン'), text, url: SHARE_URL, dialogTitle: t('シェア') }); } catch (e) { /* キャンセル */ }
+    return;
+  }
   // スマホ：端末の共有メニュー（LINE・X・メッセージなど）
   if (navigator.share) {
     try {
@@ -482,15 +618,24 @@ function vibrate(pattern) {
 el.canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); onTap(); });
 document.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  if (e.code === 'Escape') { if (game.paused) resumeFromPause(); else pauseGame(); return; }
   if (e.code === 'Space' || e.code === 'Enter') {
     if (game.mode === 'play') { e.preventDefault(); onTap(); }
   }
 });
-el.btnStart.addEventListener('click', startGame);
+el.btnStart.addEventListener('click', play);
+el.btnHowto.addEventListener('click', openHowto);
+el.btnHowtoPlay.addEventListener('click', play);
+el.btnHowtoBack.addEventListener('click', backToTitle);
+el.btnPause.addEventListener('click', pauseGame);
+el.btnResume.addEventListener('click', resumeFromPause);
+el.btnPauseHome.addEventListener('click', backToTitle);
+el.btnCont.addEventListener('click', watchContinue);
+el.btnContSkip.addEventListener('click', skipContinue);
 el.btnShare.addEventListener('click', onShare);
 el.shareCopy.addEventListener('click', copyShare);
-el.btnRetry.addEventListener('click', () => { if (game.mode === 'result') startGame(); });
-el.btnHome.addEventListener('click', () => { if (game.mode === 'result') goHome(); });
+el.btnRetry.addEventListener('click', retry);
+el.btnHome.addEventListener('click', backToTitle);
 el.btnSound.addEventListener('click', () => setSound(!settings.sound));
 el.btnSettings.addEventListener('click', openSettings);
 el.btnSettingsClose.addEventListener('click', () => el.settings.classList.remove('active'));
@@ -507,6 +652,7 @@ el.optLang.addEventListener('change', () => {
   store.set('kakoon.settings', settings);
   setLang(detectLang(settings.lang));
   applyDom();
+  updatePrivacyLink();
   updateTitleScreen();
   updateHud();
   openSettings();
@@ -527,7 +673,38 @@ el.btnReset.addEventListener('click', () => {
 el.title.addEventListener('pointerdown', () => sound.unlock(), { once: true });
 
 window.addEventListener('resize', () => renderer.resize());
-document.addEventListener('visibilitychange', () => { lastTs = performance.now(); });
+// 別のアプリに切り替えたら自動で一時停止して音を止める（広告の表示中は広告側が音を止めている）
+document.addEventListener('visibilitychange', () => {
+  lastTs = performance.now();
+  if (document.hidden) {
+    pauseGame();
+    sound.suspend();
+  } else if (!Ads.showing && !game.paused) {
+    sound.resume();
+  }
+});
+Ads.setSoundHooks({ suspend: () => sound.suspend(), resume: () => { if (!game.paused) sound.resume(); } });
+
+// Android の戻るボタン：プレイ中は一時停止（一時停止中なら再開）、あそびかたではタイトルへ、
+// タイトル・結果画面ではアプリを終了
+if (plugin('App')) {
+  plugin('App').addListener('backButton', () => {
+    if (el.settings.classList.contains('active')) { el.settings.classList.remove('active'); return; }
+    if (game.mode === 'howto') backToTitle();
+    else if (game.mode === 'continue') skipContinue();
+    else if (game.mode === 'title' || game.mode === 'result') plugin('App').exitApp();
+    else if (game.paused) resumeFromPause();
+    else if (game.mode === 'play') pauseGame();
+  });
+}
+
+// タイトル画面の下：バージョン（アプリ版）・プライバシーポリシー・広告の設定（EU など）
+if (window.APP_VERSION && window.APP_VERSION !== 'dev') el.buildInfo.textContent = window.APP_VERSION;
+else el.buildInfo.hidden = true;
+const updatePrivacyLink = () => { el.privacyLink.href = PRIVACY_URL[getLang()] || PRIVACY_URL.ja; };
+updatePrivacyLink();
+Ads.initDone.then(() => { if (Ads.privacyOptionsRequired) el.adPrivacy.hidden = false; });
+el.adPrivacyLink.addEventListener('click', (e) => { e.preventDefault(); Ads.showPrivacyOptions(); });
 
 updateTitleScreen();
 showScreen('loading');

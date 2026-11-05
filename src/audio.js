@@ -36,6 +36,10 @@ export class Sound {
     if (on) this.bgm.start(); else this.bgm.stop();
   }
 
+  /** 一時停止・アプリの切り替え・広告の表示中は音を止める */
+  suspend() { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); }
+  resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
+
   get ready() { return !!this.ctx && this.ctx.state === 'running'; }
 
   setEnabled(on) {

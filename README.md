@@ -98,7 +98,11 @@ npm test
 | `src/audio.js` | 「カコーン」・水音（泡の音）・雨音・風音・判定音（Web Audio で合成） |
 | `src/bgm.js` | 大正琴風の BGM（Web Audio で合成） |
 | `src/i18n.js` | 日本語・英語の切り替え |
-| `src/ads.js` | 広告ルール（**アプリ版用**。Web版では読み込んでいません） |
+| `src/admob.js` | 広告（AdMob。Android アプリのときだけ動き、Web 版では何もしない） |
+| `ads-config.js` / `build-info.js` | 広告のモードとバージョン（アプリ用のビルドで書き換える） |
+| `android/` | Android アプリのプロジェクト（Capacitor） |
+| `resources/` | アプリのアイコン・起動画面の元画像 |
+| `scripts/build-web.js` | アプリに同梱するファイルを `www/` にまとめる |
 | `assets/` | HDRI・3Dモデル・テクスチャ（Poly Haven / CC0、`assets/CREDITS.md`） |
 | `vendor/three/` | three.js r180 |
 | `tests/` | ルール・鹿威しの動き・広告ルールのテスト |
@@ -118,9 +122,51 @@ npm test
 - 読み込むデータは合計約12MBです。
 
 ## 広告について
-Web版には広告を入れていません。リワード広告によるコンティニューとインタースティシャル広告は、アプリ版で実装する予定です（ルールは `src/ads.js` と `docs/game-design.md`）。
+Web 版には広告を入れていません。広告は Android アプリ版だけです（下記）。
 
 ## 公開（GitHub Pages）
 `main` に push すると、`.github/workflows/pages.yml` がテストを実行してから公開します。初回だけ、次の設定が必要です。
 - **Settings → Actions → General** で Actions を許可する
 - **Settings → Pages → Source** を **GitHub Actions** にする
+
+## Android アプリ
+
+[Capacitor](https://capacitorjs.com/) でゲームのファイルをアプリに同梱し、Android アプリにしています（オフラインで遊べます）。
+構成は techgymjp/jet-fighter の `docs/ANDROID_PORTING.md`、techgymjp/corner-kick と同じです。
+
+- **動作確認用 APK**（デバッグ署名・テスト広告。Google Play 版ではありません）
+  - リリース画面: https://github.com/techgymjp/shishi/releases/tag/android-latest
+  - APK 直接: https://github.com/techgymjp/shishi/releases/latest/download/shishi.apk
+  - QR コード（リリース画面）: [`docs/apk-qr.png`](docs/apk-qr.png)
+
+  ![APK のリリース画面の QR コード](docs/apk-qr.png)
+
+- パッケージ名: `jp.techgym.shishi`
+- アプリ名: 鹿威しカコーン（英語の端末では KAKOON!）
+- 縦画面固定・全画面・プレイ中は画面を消さない
+- トップ画面は「▶ プレイ」「あそびかた」だけ。遊び方は「あそびかた」画面にまとめています
+- 戻るボタン: プレイ中は一時停止（一時停止中なら再開）、あそびかたではタイトルへ、タイトル・結果画面ではアプリを終了
+- 画面左下の「Ⅱ」でも一時停止できます。別アプリに切り替えると、自動で一時停止して音を止めます
+- シェアは Android の共有メニュー
+- 広告（AdMob）
+  - バナー: タイトル・あそびかた・一時停止・結果画面の下中央（プレイ中は出さない）
+  - 全画面広告（インタースティシャル）: 「プレイ」（タイトル・あそびかたから）、「タイトルへ」（あそびかた・一時停止・結果画面から）、一時停止からの「再開」、結果画面の「もう一度遊ぶ」のたびに毎回
+  - リワード広告（チート）: 3 回目の MISS でゲームオーバーになったら「広告を見て続ける」（1 ゲーム 2 回まで）。
+    MISS を見届けられるよう 2.2 秒後に出し、6 秒で自動的に結果画面へ。最後まで見るとその MISS を取り消し（MISS 2 回・コンボも戻る）、続きから遊べます。
+    使ったことは結果画面とシェア文に「コンティニュー N 回」と出ます
+  - EU など同意が必要な地域では、タイトル画面に「広告の設定」
+  - 広告ユニット ID は `src/admob.js` の `UNITS.android.production`、AdMob のアプリ ID は `android/app/src/main/res/values/strings.xml` の `admob_app_id`。
+    本番の ID が届くまではテスト用の ID です（本番ビルドでは、ID が空の種類の広告は出しません）
+- タイトル画面の下に、バージョン（アプリ版のみ）とプライバシーポリシーへのリンク
+- GitHub Actions（`.github/workflows/android.yml`）で、push のたびにビルドします
+  - 既定ブランチのビルドは、Release `android-latest` の `shishi.apk` を差し替えます
+  - GitHub Secrets（`ANDROID_KEYSTORE_BASE64`・`ANDROID_KEYSTORE_PASSWORD`・`ANDROID_KEY_ALIAS`・`ANDROID_KEY_PASSWORD`）を登録すると、本番広告の署名付き AAB（Google Play 用）も作り、Artifact `shishi-release-aab` に上げます
+
+手元で試すとき: `npm install` → `npm run android:sync` → `npm run android:open`（Android Studio が必要）。
+アイコンと起動画面の元画像は `resources/` にあります。
+
+## ライセンス
+
+著作権はテックジム株式会社に帰属します（All rights reserved）。許可なく複製・改変・再配布すること、Web サイトやアプリとして公開・販売すること、名前・ロゴ・アイコン・画像を使うことを禁止します。
+テックジムの受講生が学習目的で複製・改変することは許可しますが、アプリストアでの公開・広告の掲載・販売などの商用利用は禁止し、著作権表示を残してください。
+同梱の three.js は MIT License、3D 素材（Poly Haven）は CC0 です。詳しくは [LICENSE](LICENSE) と [assets/CREDITS.md](assets/CREDITS.md) を見てください。
