@@ -1,0 +1,18 @@
+<ja-JP>
+鹿威しカコーン、配信開始！
+・竹筒が石を打つ「カコーン！」の瞬間にタップする、日本庭園のワンタップゲーム
+・縮んでくる輪が石の輪と重なったときが PERFECT。連続成功でコンボ倍率アップ
+・レベルが上がると、雨・風・夜・竹筒のサイズ・2本の鹿威しが登場
+・茶室と縁側の猫、しだれ桜、黒松、枯山水、鯉の池。カメラが庭をめぐる
+・大正琴の BGM、称号、スコアのシェア、日本語・英語対応
+・3回目の MISS は、広告を見て取り消して続けられる（1ゲーム2回まで）
+</ja-JP>
+<en-US>
+Japan Garden KAKOON! is here!
+• A one-tap game: tap the moment the bamboo strikes the stone — kakoon!
+• Tap when the shrinking ring meets the stone's ring for a PERFECT
+• Rain, wind, night, tube sizes and a second shishi-odoshi appear as you level up
+• A tea house with a napping cat, a weeping cherry, a rock garden and a koi pond
+• Taishōgoto music, ranks, score sharing, English and Japanese
+• Third MISS? Watch an ad to undo it and keep playing (up to 2 times per game)
+</en-US>

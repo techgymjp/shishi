@@ -1,0 +1,54 @@
+Japan Garden KAKOON! - English source text for machine translation (Google Play store listing)
+
+This version uses short, plain sentences without idioms or slang, so that automatic translation
+into other languages stays accurate. Keep the game name "Japan Garden KAKOON!" untranslated.
+
+[App name] (max 30 characters)
+Japan Garden KAKOON!
+
+[Short description] (max 80 characters)
+Tap when the bamboo hits the stone. A calm one-tap game in a Japanese garden.
+
+[Full description] (max 4000 characters)
+This game takes place in a Japanese garden with moss and trees. In the garden there is a shishi-odoshi. A shishi-odoshi is a bamboo tube that fills with water. When it is empty, it falls back and hits a stone. It makes the sound "kakoon".
+Tap the screen at the moment the bamboo hits the stone. If your timing is perfect, you get a PERFECT.
+
+■ HOW THE SHISHI-ODOSHI MOVES
+• Water flows into the bamboo tube. The tube slowly tips down.
+• The water pours out. The empty tube falls back and hits the stone.
+• The water goes into a stone bowl. Then it flows in a small stream to a pond with fish.
+
+■ HOW TO PLAY
+• A ring moves toward the stone. Tap when the ring touches the ring on the stone.
+• There are four results: PERFECT, GREAT, GOOD and MISS.
+• If you succeed many times in a row, you get more points. The bonus can be up to 3 times.
+• The game ends after three MISS results.
+
+■ PERFECT EFFECTS
+• You see a gold light, a column of light and many cherry blossom petals.
+• The camera moves closer, and you hear bells.
+
+■ THE GARDEN CHANGES
+• Rain: the water flows faster.
+• Wind: the bamboo moves in a different way.
+• Night: the garden is dark. The lanterns are on.
+• Tube size: the tube becomes thick or thin.
+• Two tubes: a second shishi-odoshi appears.
+• At higher levels, these changes come together.
+
+■ THE GARDEN
+• There is a tea house. A cat sleeps on the veranda.
+• There is a cherry tree, a pine tree, a stone lantern, a rock garden, bamboo and maple trees.
+• The camera moves around the garden. You see the garden from many angles.
+
+■ SOUND
+• You hear the "kakoon" sound, water, rain and wind.
+• Calm music plays on a Japanese string instrument.
+
+■ OTHER FEATURES
+• You can get ranks, from "Novice Gardener" to "Legendary Gardener".
+• You can share your score with friends.
+• Practice mode: you can choose the garden changes.
+• After the third MISS, you can watch an ad to remove one MISS and continue. You can do this two times in one game.
+• You can play offline. Ads and sharing need the internet.
+• Languages: English and Japanese.

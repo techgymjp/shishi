@@ -162,6 +162,8 @@ Web 版には広告を入れていません。広告は Android アプリ版だ�
   - 既定ブランチのビルドは、Release `android-latest` の `shishi.apk` を差し替えます
   - GitHub Secrets（`ANDROID_KEYSTORE_BASE64`・`ANDROID_KEYSTORE_PASSWORD`・`ANDROID_KEY_ALIAS`・`ANDROID_KEY_PASSWORD`）を登録すると、本番広告の署名付き AAB（Google Play 用）も作り、Artifact `shishi-release-aab` に上げます
 
+ストア掲載用の画像と紹介文（日英）は [`docs/store/`](docs/store/) にあります（Google Play 用の下書きは `docs/store/listing.md`）。
+
 手元で試すとき: `npm install` → `npm run android:sync` → `npm run android:open`（Android Studio が必要）。
 アイコンと起動画面の元画像は `resources/` にあります。
 
