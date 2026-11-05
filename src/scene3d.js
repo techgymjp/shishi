@@ -1484,8 +1484,12 @@ export class Scene3D {
     target.y -= 0.08 * Math.max(0, Math.sin(el) - 0.4);
     // PERFECT の瞬間にぐっと寄る
     const punch = Math.sin(Math.min(this.punch || 0, 1) * Math.PI / 2);
-    const dist = this.camDist * (1 + 0.3 * this.twinK) * (1 - 0.12 * Math.max(0, Math.sin(el) - 0.3)) * (1 - 0.14 * punch);
     const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+    // どの角度から見ても、鹿威し（2本のときは両方）の石・竹筒の口・手水鉢が画面に収まる距離まで引く
+    const base = this.camDist * (1 - 0.12 * Math.max(0, Math.sin(el) - 0.3));
+    const need = this.fitDistance(target, dir, base);
+    this.fitDist = this.fitDist ? this.fitDist + (need - this.fitDist) * Math.min(dt * 3, 1) : need;
+    const dist = Math.max(base, this.fitDist) * (1 - 0.14 * punch);
     const cam = target.clone().addScaledVector(dir, dist);
     if (this.shake > 0) {
       cam.x += (Math.random() - 0.5) * this.shake * dist * 0.6;
@@ -1504,6 +1508,41 @@ export class Scene3D {
         ? `radial-gradient(circle at 50% 50%, rgba(255,246,214,${a}) 0%, rgba(255,214,120,${a * 0.6}) 45%, rgba(255,190,80,${a * 0.25}) 100%)`
         : d > 0 ? `rgba(0,0,0,${d})` : 'transparent';
     }
+  }
+
+  /**
+   * 見せたい点がすべて画面内（HUD・下部の文字を避けた範囲）に入る最小の距離を二分探索で求める。
+   * 石はタイミングの輪が切れないよう、さらに内側に収める。
+   */
+  fitDistance(target, dir, base) {
+    const pts = [];
+    this.units.forEach((u) => {
+      if (u.visibleK < 0.05) return;
+      const c = u.contactW;
+      pts.push({ p: c, m: 0.2 }, { p: c.clone().add(new THREE.Vector3(0, 0.06, 0)), m: 0.2 });   // 石（輪の分の余白）
+      const o = u.origin;
+      pts.push({ p: new THREE.Vector3(o.x + 0.45, 0.6, o.z), m: 0.04 });                         // 竹筒の口
+      const b = u.basinW;
+      pts.push({ p: new THREE.Vector3(b.x + 0.1, 0.15, b.z), m: 0.02 });                         // 手水鉢
+    });
+    const cam = this.camera;
+    const fits = (d) => {
+      cam.position.copy(target).addScaledVector(dir, d);
+      cam.lookAt(target);
+      cam.updateMatrixWorld();
+      for (const { p, m } of pts) {
+        const v = p.clone().project(cam);
+        if (v.z > 1 || Math.abs(v.x) > 0.92 - m || v.y > 0.6 - m || v.y < -0.7 + m) return false;
+      }
+      return true;
+    };
+    if (fits(base)) return base;
+    let lo = base, hi = base * 3.5;
+    for (let i = 0; i < 12; i++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) hi = mid; else lo = mid;
+    }
+    return hi;
   }
 
   resize() {

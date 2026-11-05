@@ -96,7 +96,8 @@ html, body {
   100% { opacity: 0; transform: translateY(-24px); }
 }
 .mult {
-  position: absolute; left: 0; right: 0; top: calc(24% + 64px); text-align: center;
+  /* PERFECT の「○連続」と重ならないよう、その1段下に出す */
+  position: absolute; left: 0; right: 0; top: calc(24% + 108px); text-align: center;
   font-family: system-ui, sans-serif; font-weight: 800; color: var(--gold); opacity: 0; pointer-events: none;
 }
 .mult.show { animation: judge 1s ease-out forwards; }
@@ -131,7 +132,12 @@ h1 {
   margin: 0; font-size: 58px; line-height: 1.1; letter-spacing: .12em; font-weight: 800;
   text-shadow: 0 4px 24px rgba(0,0,0,.6);
 }
-.tagline { margin: 12px 0 0; color: var(--muted); letter-spacing: .2em; font-size: 14px; }
+.tagline {
+  margin: 12px auto 0; color: #ece6d6; letter-spacing: .2em; font-size: 14px;
+  /* 竹垣に重なっても読めるよう、影と薄い帯を敷く */
+  display: inline-block; padding: 4px 14px; border-radius: 999px;
+  background: rgba(8,14,10,.45); text-shadow: 0 1px 4px rgba(0,0,0,.9);
+}
 .title-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
 .best-line { margin: 0; font-family: system-ui, sans-serif; color: var(--muted); letter-spacing: .1em; font-size: 13px; }
 .best-line b { color: var(--text); font-size: 20px; margin-left: 6px; }
