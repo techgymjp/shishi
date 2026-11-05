@@ -8,7 +8,6 @@ Web向けに縮小・再圧縮して使っています。
 | `hdri/mossy_forest_1k.hdr`、`hdri/mossy_forest_bg.jpg` | [Mossy Forest](https://polyhaven.com/a/mossy_forest) |
 | `models/rock_moss_set_02` | [Rock Moss Set 02](https://polyhaven.com/a/rock_moss_set_02) |
 | `models/fern_02` | [Fern 02](https://polyhaven.com/a/fern_02) |
-| `models/moss_01` | [Moss 01](https://polyhaven.com/a/moss_01) |
 | `textures/aerial_grass_rock_*` | [Aerial Grass Rock](https://polyhaven.com/a/aerial_grass_rock) |
 | `textures/clean_pebbles_*` | [Clean Pebbles](https://polyhaven.com/a/clean_pebbles) |
 | `textures/mossy_rock_*` | [Mossy Rock](https://polyhaven.com/a/mossy_rock) |

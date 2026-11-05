@@ -4,7 +4,7 @@
 export const MAX_MISSES = 3; // MISSが3回でゲームオーバー
 
 /** 判定幅（秒）。衝突予定時刻とタップ時刻の差で判定する。 */
-export const JUDGE_WINDOWS = { PERFECT: 0.10, GREAT: 0.20, GOOD: 0.35 };
+export const JUDGE_WINDOWS = { PERFECT: 0.05, GREAT: 0.11, GOOD: 0.20 };
 
 export const BASE_POINTS = { PERFECT: 100, GREAT: 70, GOOD: 40, MISS: 0 };
 

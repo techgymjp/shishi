@@ -20,7 +20,7 @@ const el = {
   loading: $('loading-screen'), progress: $('progress-bar'), loadingText: $('loading-text'),
   score: $('score'), combo: $('combo'), comboWrap: $('combo-wrap'), lives: $('lives'),
   hudBest: $('hud-best'), level: $('level'), judge: $('judge'), mult: $('mult'),
-  tapHint: $('tap-hint'), gauge: $('gauge-fill'), timing: $('timing'), approach: $('approach'),
+  tapHint: $('tap-hint'), timing: $('timing'), approach: $('approach'),
   title: $('title-screen'), result: $('result-screen'), settings: $('settings-screen'),
   best: $('best'), titleName: $('title-name'),
   btnStart: $('btn-start'), btnSound: $('btn-sound'), btnSettings: $('btn-settings'),
@@ -177,12 +177,12 @@ function applyResult(result, delta, i = 0) {
       vibrate(15);
     }
     game.score += pointsFor(result, game.combo);
-    showJudge(result);
+    showJudge(result, result === 'PERFECT' && game.perfectStreak > 1 ? `${game.perfectStreak}連続` : '');
     const m = comboMultiplier(game.combo);
     if (m > 1 && comboMultiplier(game.combo - 1) < m) flashMultiplier(`コンボ倍率 ×${m.toFixed(1)}`);
   }
-  renderer.judgeEffect(result, i);
-  sound.judge(result);
+  renderer.judgeEffect(result, i, game.perfectStreak);
+  sound.judge(result, game.perfectStreak);
   // レベルアップでギミックが変わる
   const lv = levelFor(game.successes);
   if (lv !== game.level) {
@@ -306,7 +306,6 @@ function frame(ts) {
   const maxFill = Math.max(...units.map((u) => (u.active && u.sim.phase === 'fill' ? u.sim.fill : 0)));
   sound.setWater(maxFill, units.some((u) => u.active && u.sim.phase === 'fill') ? 'tube' : 'stone');
   el.tapHint.classList.toggle('hot', Math.max(...glows) > 0.4);
-  el.gauge.style.width = `${(maxFill * 100).toFixed(1)}%`;
 
   requestAnimationFrame(frame);
 }

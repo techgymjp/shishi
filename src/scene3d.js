@@ -17,7 +17,7 @@ const TUBE_FRONT = 0.44;       // 水を受ける口
 const TUBE_CUT = 0.11;         // 口を斜めに切った長さ
 const SEPTUM_X = 0.03;         // 支点の少し前にある節（水はここから口までに溜まる）
 const SPOUT_POST = new THREE.Vector3(0.68, 0, -0.17);  // 筧の支柱
-const BASIN = new THREE.Vector3(0.36, 0, 0.02);   // 手水鉢
+const BASIN = new THREE.Vector3(0.45, 0, 0.02);   // 手水鉢（竹筒からこぼれた水が落ちる位置）
 const BASIN_WATER_Y = 0.155;
 const BASIN_WATER_R = 0.128;
 const G = 9.8;
@@ -211,7 +211,7 @@ function nodeRing(r, x, mat) {
 
 
 // 2本目の鹿威しを置く位置（ギミック「2本の鹿威し」）
-const UNIT_ORIGINS = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.12, 0, -0.8)];
+const UNIT_ORIGINS = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(-1.0, 0, -0.38)];
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 const lerp = (a, b, k) => a + (b - a) * k;
 
@@ -542,11 +542,12 @@ class ShishiUnit {
       s3.spawnDrops(end, 1, { speed: 0.3, size: 0.002 });
     }
 
-    // 竹筒からこぼれる水（口の低い縁から）
-    if (sim.phase === 'pour' && fill > 0.02) {
+    // 竹筒からこぼれる水（口の縁が中の水面より低くなってから）
+    this.lastPourEnd = null;
+    if (sim.phase === 'pour' && fill > 0.02 && lip.y < septumLow + 0.004) {
       const lipL = new THREE.Vector3(TUBE_FRONT, -(TUBE_R - TUBE_WALL) * this.size, 0).applyAxisAngle(Z_AXIS, rot).add(PIVOT);
       const dirOut = new THREE.Vector3(1, 0, 0).applyAxisAngle(Z_AXIS, rot);
-      const v = 0.6 + fill * 0.4;
+      const v = 0.22 + fill * 0.3;   // 縁からあふれ出るように、勢いは弱め
       const a = 0.5 * G, b = -dirOut.y * v, c = BASIN_WATER_Y - lipL.y;
       const ty = (-b + Math.sqrt(Math.max(b * b - 4 * a * c, 0))) / (2 * a);
       const pp = [];
@@ -558,6 +559,7 @@ class ShishiUnit {
       this.pourStream.geometry = s3.streamGeometry(pp, (0.006 + fill * 0.012) * this.size);
       this.pourStream.visible = true;
       const pend = this.group.localToWorld(pp[pp.length - 1].clone());
+      this.lastPourEnd = pend;
       if (Math.random() < 0.8) s3.spawnDrops(pend, 2, { speed: 0.9, size: 0.004 });
       if (Math.random() < 0.3) s3.ripple(pend.x, pend.z, 0.12, basinY);
     } else {
@@ -623,13 +625,13 @@ export class Scene3D {
     };
     const gltf = (name) => new Promise((res) => gltfLoader.load(`${ASSET}models/${name}/${name}.gltf`, res, undefined, () => res(null)));
 
-    const [hdr, bg, ground, pebbles, rock, rocks, ferns, moss] = await Promise.all([
+    const [hdr, bg, ground, pebbles, rock, rocks, ferns] = await Promise.all([
       new Promise((res) => hdrLoader.load(`${ASSET}hdri/mossy_forest_1k.hdr`, res, undefined, () => res(null))),
       new Promise((res) => texLoader.load(`${ASSET}hdri/mossy_forest_bg.jpg`, res, undefined, () => res(null))),
       pbr('aerial_grass_rock'), pbr('clean_pebbles'), pbr('mossy_rock'),
-      gltf('rock_moss_set_02'), gltf('fern_02'), gltf('moss_01'),
+      gltf('rock_moss_set_02'), gltf('fern_02'),
     ]);
-    this.assets = { hdr, bg, ground, pebbles, rock, rocks, ferns, moss };
+    this.assets = { hdr, bg, ground, pebbles, rock, rocks, ferns };
     this.build();
     this.ready = true;
     this.resize();
@@ -716,8 +718,8 @@ export class Scene3D {
     this.pebbleMat = this.pbrMaterial(assets.pebbles, 1.6, { color: 0xb8b4a8, alphaMap: radialAlpha(0.7), transparent: true, polygonOffset: true, polygonOffsetFactor: -1 });
     this.waterNormal = rippleNormal();
     this.waterMat = new THREE.MeshPhysicalMaterial({
-      color: 0x14241f, roughness: 0.1, metalness: 0, normalMap: this.waterNormal,
-      normalScale: new THREE.Vector2(0.06, 0.06), envMapIntensity: 0.8,
+      color: 0x13221d, roughness: 0.2, metalness: 0, normalMap: this.waterNormal,
+      normalScale: new THREE.Vector2(0.04, 0.04), envMapIntensity: 0.35,
     });
     this.streamTex = streamTexture();
     this.streamTex.repeat.set(1, 3);
@@ -728,11 +730,13 @@ export class Scene3D {
     this.haloTex = glowTexture('rgba(255,215,130,1)');
 
     this.buildParticles();
+    this.buildPerfectFx();
     this.units = UNIT_ORIGINS.map((o, i) => new ShishiUnit(this, o, i));
     this.units[1].visibleK = 0;
     this.buildLantern();
     this.buildFence();
     this.buildPlants();
+    this.buildStreamAndPond();
     this.buildWeather();
     pmrem.dispose();
   }
@@ -763,11 +767,11 @@ export class Scene3D {
     add(new THREE.CylinderGeometry(0.33, 0.33, 0.03, 6), 0.975);
     add(new THREE.SphereGeometry(0.05, 16, 12), 1.19);
     add(new THREE.ConeGeometry(0.04, 0.07, 12), 1.25);
-    grp.position.set(-0.95, 0, -1.15);
+    grp.position.set(-0.6, 0, -1.55);
     grp.rotation.y = 0.5;
     this.scene.add(grp);
     this.lamp = new THREE.PointLight(0xffb560, 0.25, 2.5, 1.6);
-    this.lamp.position.set(-0.95, 0.88, -1.0);
+    this.lamp.position.set(-0.6, 0.88, -1.4);
     this.scene.add(this.lamp);
   }
 
@@ -800,16 +804,16 @@ export class Scene3D {
         grp.add(k);
       }
     }
-    grp.position.set(0.1, 0, -1.75);
+    grp.position.set(0.1, 0, -2.1);
     this.scene.add(grp);
   }
 
   buildPlants() {
     const rnd = seeded(33);
-    const { rocks, ferns, moss } = this.assets;
+    const { rocks, ferns } = this.assets;
     if (rocks) {
       const names = ['rock_moss_set_02_rock08', 'rock_moss_set_02_rock09', 'rock_moss_set_02_rock12', 'rock_moss_set_02_rock10', 'rock_moss_set_02_rock07'];
-      const spots = [[0.82, 0.12, 0.15, 0.2], [-0.72, 0.22, 0.13, 1.4], [-1.45, -0.6, 0.3, 2.2], [1.3, -0.95, 0.28, 0.8], [1.15, 0.6, 0.2, 2.6]];
+      const spots = [[0.75, 0.32, 0.12, 0.2], [-0.45, 0.35, 0.13, 1.4], [-1.7, -0.9, 0.3, 2.2], [1.95, -1.25, 0.28, 0.8], [1.15, 0.6, 0.2, 2.6]];
       spots.forEach(([x, z, s, ry], i) => {
         const src = rocks.scene.getObjectByName(names[i % names.length]);
         if (!src) return;
@@ -823,7 +827,7 @@ export class Scene3D {
     }
     this.ferns = [];
     if (ferns) {
-      const spots = [[-0.55, -0.4, 0.7], [1.05, -0.4, 0.8], [-1.3, 0.2, 0.9], [1.5, -0.2, 0.75], [-0.6, -1.25, 0.9], [0.7, 0.6, 0.45], [-0.3, 0.75, 0.5]];
+      const spots = [[-0.32, -0.62, 0.6], [1.3, -0.65, 0.6], [-1.6, 0.25, 0.9], [1.75, -0.2, 0.75], [-1.25, -1.35, 0.9], [0.7, 0.6, 0.45], [-0.3, 0.75, 0.5], [1.25, -1.45, 0.8]];
       spots.forEach(([x, z, s], i) => {
         const src = ferns.scene.children[i % ferns.scene.children.length];
         const f = src.clone();
@@ -833,37 +837,6 @@ export class Scene3D {
         f.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
         this.scene.add(f);
         this.ferns.push(f);
-      });
-    }
-    if (moss) {
-      const meshes = [];
-      moss.scene.traverse((o) => { if (o.isMesh) meshes.push(o); });
-      const centers = [];
-      this.units.forEach((u) => {
-        const c = u.contactW, b = u.basinW;
-        centers.push([c.x, c.z, 0.3, 60], [b.x, b.z, 0.32, 60], [u.origin.x, u.origin.z, 0.16, 24]);
-      });
-      centers.push([-0.72, 0.22, 0.25, 40], [0.82, 0.12, 0.25, 40], [-0.95, -1.15, 0.35, 50]);
-      const dummy = new THREE.Object3D();
-      meshes.forEach((mesh) => {
-        const per = [];
-        centers.forEach(([cx, cz, rad, n]) => {
-          for (let k = 0; k < Math.ceil(n / meshes.length) + 1; k++) {
-            const a = rnd() * Math.PI * 2;
-            const d = rad * (0.75 + rnd() * 0.45);
-            per.push([cx + Math.cos(a) * d, cz + Math.sin(a) * d]);
-          }
-        });
-        const inst = new THREE.InstancedMesh(mesh.geometry, mesh.material, per.length);
-        per.forEach(([x, z], i) => {
-          dummy.position.set(x, 0, z);
-          dummy.rotation.set(0, rnd() * 6.28, 0);
-          dummy.scale.setScalar(1.6 + rnd() * 2.2);
-          dummy.updateMatrix();
-          inst.setMatrixAt(i, dummy.matrix);
-        });
-        inst.receiveShadow = true;
-        this.scene.add(inst);
       });
     }
   }
@@ -893,12 +866,303 @@ export class Scene3D {
 
     this.sparkTex = glowTexture('rgba(255,225,150,1)');
     this.sparks = [];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 80; i++) {
       const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.sparkTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0 }));
       sp.visible = false;
       this.scene.add(sp);
       this.sparks.push({ sprite: sp, life: 1, max: 1, v: new THREE.Vector3() });
     }
+  }
+
+  // ---------- 小川と池：手水鉢からあふれた水が小川を流れ、奥の池へ ----------
+  buildStreamAndPond() {
+    const basin = this.units[0].basinW;
+    const POND = new THREE.Vector3(0.38, 0, -1.2);
+    this.pondCenter = POND;
+    const rnd = seeded(77);
+
+    // 手水鉢のふちからあふれる細い水
+    this.overflowStart = new THREE.Vector3(basin.x - 0.01, 0.178, basin.z - 0.172);
+
+    // 小川の道筋（手水鉢の右から、蛇行して奥の池へ）
+    // 小川の道筋（手水鉢の奥から、ゆるく曲がって池へ）
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(basin.x - 0.02, 0, basin.z - 0.2),
+      new THREE.Vector3(basin.x - 0.15, 0, basin.z - 0.4),
+      new THREE.Vector3(basin.x - 0.05, 0, basin.z - 0.62),
+      new THREE.Vector3(POND.x, 0, POND.z + 0.46),
+      new THREE.Vector3(POND.x, 0, POND.z + 0.22),
+    ]);
+    const ribbon = (width, y, wobble = 0) => {
+      const N = 90;
+      const pos = [], uv = [], idx = [];
+      let dist = 0, prev = null;
+      for (let i = 0; i <= N; i++) {
+        const t = i / N;
+        const p = curve.getPointAt(t);
+        const tan = curve.getTangentAt(t);
+        const n = new THREE.Vector3(-tan.z, 0, tan.x);
+        if (prev) dist += p.distanceTo(prev);
+        prev = p;
+        const w = width * (0.85 + 0.25 * Math.sin(t * 17 + 1) + wobble * (rnd() - 0.5));
+        const l = p.clone().addScaledVector(n, w / 2), r = p.clone().addScaledVector(n, -w / 2);
+        pos.push(l.x, y, l.z, r.x, y, r.z);
+        uv.push(0, dist / width, 1, dist / width);
+        if (i < N) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      return g;
+    };
+    // 川床（濡れた玉砂利）
+    const bedMat = this.pbrMaterial(this.assets.pebbles, 1, { color: 0x6d6a5f, roughness: 0.6 });
+    for (const t of [bedMat.map, bedMat.normalMap, bedMat.roughnessMap, bedMat.aoMap]) if (t) t.repeat.set(1, 1);
+    const bed = new THREE.Mesh(ribbon(0.2, 0.004, 0.2), bedMat);
+    bed.receiveShadow = true;
+    this.scene.add(bed);
+    // 流れる水面
+    this.streamNormal = rippleNormal();
+    this.streamNormal.repeat.set(1, 1);
+    this.flowMat = new THREE.MeshPhysicalMaterial({
+      color: 0x22392f, roughness: 0.16, metalness: 0, transparent: true, opacity: 0.62,
+      normalMap: this.streamNormal, normalScale: new THREE.Vector2(0.28, 0.28), envMapIntensity: 0.85, depthWrite: false,
+    });
+    const flow = new THREE.Mesh(ribbon(0.12, 0.012), this.flowMat);
+    flow.receiveShadow = true;
+    this.scene.add(flow);
+    // 岸の小石
+    const set = this.assets.rocks;
+    const names = set ? set.scene.children.map((c) => c.name) : [];
+    const addStone = (x, z, s, ry) => {
+      if (!set) return;
+      const src = set.scene.getObjectByName(names[Math.floor(rnd() * names.length)]);
+      const r = src.clone();
+      r.position.set(x, -0.01, z);
+      r.rotation.set(0, ry, 0);
+      r.scale.setScalar(s);
+      r.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      this.scene.add(r);
+    };
+    for (let i = 0; i < 16; i++) {
+      const t = 0.06 + (i / 16) * 0.78;
+      const p = curve.getPointAt(t), tan = curve.getTangentAt(t);
+      const n = new THREE.Vector3(-tan.z, 0, tan.x);
+      const side = i % 2 ? 1 : -1;
+      const q = p.clone().addScaledVector(n, side * (0.12 + rnd() * 0.04));
+      addStone(q.x, q.z, 0.035 + rnd() * 0.035, rnd() * 6.28);
+    }
+
+    // 池（ゆがんだ円形）
+    const shape = new THREE.Shape();
+    const R = 0.46;
+    const radius = (th) => R * (1 + 0.12 * Math.sin(3 * th + 1) + 0.07 * Math.sin(5 * th + 2));
+    for (let i = 0; i <= 64; i++) {
+      const th = (i / 64) * Math.PI * 2;
+      const r = radius(th);
+      const x = Math.cos(th) * r, y = Math.sin(th) * r;
+      if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+    }
+    this.pondRadius = radius;
+    const mk = (scale, y, mat) => {
+      const g = new THREE.ShapeGeometry(shape, 1);
+      g.scale(scale, scale, 1);
+      const m = new THREE.Mesh(g, mat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(POND.x, y, POND.z);
+      m.receiveShadow = true;
+      this.scene.add(m);
+      return m;
+    };
+    // 縁の玉砂利・池の底・水面
+    const rimMat = this.pbrMaterial(this.assets.pebbles, 2.5, { color: 0x9a968a });
+    mk(1.18, 0.003, rimMat);
+    mk(1.0, 0.006, new THREE.MeshStandardMaterial({ color: 0x24261c, roughness: 0.95 }));
+    this.pondNormal = rippleNormal();
+    this.pondNormal.repeat.set(2.5, 2.5);
+    this.pondMat = new THREE.MeshPhysicalMaterial({
+      color: 0x172b26, roughness: 0.12, metalness: 0, transparent: true, opacity: 0.66,
+      normalMap: this.pondNormal, normalScale: new THREE.Vector2(0.06, 0.06), envMapIntensity: 0.6, depthWrite: false,
+    });
+    mk(1.0, 0.04, this.pondMat);
+    // 池のまわりの石
+    for (let i = 0; i < 14; i++) {
+      const th = (i / 14) * Math.PI * 2 + rnd() * 0.2;
+      if (Math.abs(th - 4.71) < 0.4) continue; // 小川の流れ込む口（手前）はあける
+      const r = radius(th) * 1.1;
+      addStone(POND.x + Math.cos(th) * r, POND.z - Math.sin(th) * r, 0.06 + rnd() * 0.07, rnd() * 6.28);
+    }
+    // 睡蓮の葉
+    const padMat = new THREE.MeshStandardMaterial({ color: 0x3f6b2a, roughness: 0.55, side: THREE.DoubleSide });
+    for (let i = 0; i < 5; i++) {
+      const pad = new THREE.Mesh(new THREE.CircleGeometry(0.045 + rnd() * 0.03, 20, 0.3, Math.PI * 2 - 0.3), padMat);
+      pad.rotation.set(-Math.PI / 2, 0, rnd() * 6.28);
+      const th = rnd() * 6.28, r = radius(th) * (0.35 + rnd() * 0.45);
+      pad.position.set(POND.x + Math.cos(th) * r, 0.042, POND.z - Math.sin(th) * r);
+      pad.receiveShadow = true;
+      this.scene.add(pad);
+    }
+    // 鯉
+    this.koi = [];
+    const koiColors = [[0xf27a1a, 0xffffff], [0xffffff, 0xd8331f], [0xe8b23a, 0xffffff]];
+    koiColors.forEach(([c1, c2], i) => {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), new THREE.MeshStandardMaterial({ color: c1, roughness: 0.4 }));
+      body.scale.set(0.055, 0.014, 0.018);
+      g.add(body);
+      const spot = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshStandardMaterial({ color: c2, roughness: 0.4 }));
+      spot.scale.set(0.022, 0.0145, 0.0135);
+      spot.position.x = 0.012;
+      g.add(spot);
+      const tail = new THREE.Mesh(new THREE.ConeGeometry(0.016, 0.035, 4), body.material);
+      tail.rotation.z = Math.PI / 2;
+      tail.scale.set(1, 1, 0.25);
+      tail.position.x = -0.065;
+      g.add(tail);
+      this.scene.add(g);
+      this.koi.push({ g, tail, r: 0.14 + i * 0.07, sp: 0.25 + i * 0.07, ph: i * 2.1, dir: i % 2 ? 1 : -1 });
+    });
+
+    // あふれ出る水の筋（手水鉢のふち → 小川）
+    this.overflow = new THREE.Mesh(new THREE.BufferGeometry(), this.streamMat);
+    this.scene.add(this.overflow);
+    const o = this.overflowStart;
+    const pts = [];
+    for (let k = 0; k <= 8; k++) {
+      const t = k / 8;
+      pts.push(new THREE.Vector3(o.x - 0.004 * t, o.y - 0.17 * t * t, o.z - 0.035 * t));
+    }
+    this.overflow.geometry = this.streamGeometry(pts, 0.006);
+  }
+
+  updatePond(dt) {
+    if (!this.streamNormal) return;
+    this.streamNormal.offset.set(0, -this.time * 0.6 * this.flowK);   // 川の流れ
+    this.pondNormal.offset.set(this.time * 0.01, this.time * 0.006);
+    const P = this.pondCenter;
+    for (const k of this.koi) {
+      const a = this.time * k.sp * k.dir + k.ph;
+      const wob = 1 + 0.18 * Math.sin(this.time * 0.4 + k.ph);
+      const x = P.x + Math.cos(a) * k.r * wob, z = P.z + Math.sin(a) * k.r * 0.8 * wob;
+      k.g.position.set(x, 0.022, z);
+      k.g.rotation.y = -a - (k.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+      k.tail.rotation.y = Math.sin(this.time * 8 + k.ph) * 0.4;
+    }
+    // 小川の水音のかわりに、池にときどき波紋
+    if (Math.random() < dt * 0.8) {
+      const th = Math.random() * 6.28, r = this.pondRadius(th) * Math.random() * 0.7;
+      this.ripple(P.x + Math.cos(th) * r, P.z - Math.sin(th) * r, 0.08, 0.04);
+    }
+    // 小川が池に流れ込むところ
+    if (Math.random() < dt * 4) {
+      this.ripple(P.x, P.z + 0.4, 0.05, 0.04);
+    }
+  }
+
+  // ---------- PERFECT の演出（光の柱・衝撃波・桜吹雪） ----------
+  buildPerfectFx() {
+    // 光の柱：下から上へ薄れる縦グラデーション
+    const pillarTex = canvasTexture(64, 256, (g, w, h) => {
+      const img = g.createImageData(w, h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const ax = Math.exp(-(((x + 0.5) / w - 0.5) ** 2) / 0.018);        // 横：中心ほど明るい
+        const vy = 1 - y / h;                                              // 縦：下ほど明るい
+        const ay = Math.min(1, vy * 1.4) * (1 - Math.max(0, 0.15 - vy) / 0.15 * 0.6);
+        const a = ax * ay;
+        const i = (y * w + x) * 4;
+        img.data[i] = 255; img.data[i + 1] = 236 + 19 * ax; img.data[i + 2] = 190 + 65 * ax; img.data[i + 3] = 255 * a;
+      }
+      g.putImageData(img, 0, 0);
+    });
+    this.pillar = new THREE.Sprite(new THREE.SpriteMaterial({ map: pillarTex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.pillar.center.set(0.5, 0);
+    this.pillar.visible = false;
+    this.scene.add(this.pillar);
+    // 地面を走る金色の衝撃波
+    this.shocks = [];
+    for (let i = 0; i < 2; i++) {
+      const m = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 64),
+        new THREE.MeshBasicMaterial({ color: 0xffd36b, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+      m.rotation.x = -Math.PI / 2;
+      m.visible = false;
+      this.scene.add(m);
+      this.shocks.push({ mesh: m, life: 1, max: 1, delay: 0 });
+    }
+    this.fxLife = 1;
+    // 桜吹雪
+    this.petals = [];
+    const geo = new THREE.CircleGeometry(0.015, 6);
+    geo.scale(1, 0.65, 1);
+    const cols = [0xffd7e2, 0xffc2d3, 0xfbe3ea, 0xffb3c8];
+    for (let i = 0; i < 90; i++) {
+      const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: cols[i % cols.length], side: THREE.DoubleSide, roughness: 0.6, emissive: 0xff9fb8, emissiveIntensity: 0.45 }));
+      mesh.visible = false;
+      this.scene.add(mesh);
+      this.petals.push({ mesh, life: 1, max: 1, v: new THREE.Vector3(), spin: new THREE.Vector3(), ph: 0 });
+    }
+  }
+
+  perfectBurst(at, streak = 1) {
+    this.fxAt = at.clone();
+    this.fxLife = 0;
+    this.pillar.visible = true;
+    this.pillar.position.set(at.x, at.y - 0.05, at.z);
+    this.shocks.forEach((sh, k) => {
+      sh.life = 0; sh.max = 0.8; sh.delay = k * 0.12;
+      sh.mesh.position.set(at.x, 0.012, at.z);
+    });
+    const n = Math.min(30 + streak * 10, 90);
+    let c = 0;
+    for (const p of this.petals) {
+      if (c >= n) break;
+      if (p.life < p.max) continue;
+      p.life = 0; p.max = 2.2 + Math.random() * 1.2;
+      p.mesh.position.copy(at).add(new THREE.Vector3(0, 0.08, 0));
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.6 + Math.random() * 1.1;
+      p.v.set(Math.cos(a) * sp * 0.6, 0.9 + Math.random() * 1.3, Math.sin(a) * sp * 0.6);
+      p.spin.set(Math.random() * 8, Math.random() * 8, Math.random() * 8);
+      p.ph = Math.random() * 6.28;
+      p.mesh.visible = true;
+      c++;
+    }
+    this.punch = 1;
+  }
+
+  updatePerfectFx(dt) {
+    if (this.fxLife < 1) {
+      this.fxLife = Math.min(1, this.fxLife + dt / 0.9);
+      const k = this.fxLife;
+      const w = 0.08 + 0.32 * Math.sin(Math.min(k * 2.2, 1) * Math.PI / 2);
+      this.pillar.scale.set(w * (1 - k * 0.4), 1.1 + k * 0.9, 1);
+      this.pillar.material.opacity = 0.85 * (1 - k) ** 1.4;
+      if (k >= 1) this.pillar.visible = false;
+    }
+    for (const sh of this.shocks) {
+      if (sh.life >= sh.max) { sh.mesh.visible = false; continue; }
+      if (sh.delay > 0) { sh.delay -= dt; continue; }
+      sh.life += dt;
+      const k = sh.life / sh.max;
+      sh.mesh.visible = true;
+      sh.mesh.scale.setScalar(0.05 + k * 0.9);
+      sh.mesh.material.opacity = 0.85 * (1 - k);
+    }
+    for (const p of this.petals) {
+      if (p.life >= p.max) { p.mesh.visible = false; continue; }
+      p.life += dt;
+      // ふわりと舞い上がってから、ひらひらと落ちる
+      p.v.y -= 2.2 * dt;
+      p.v.multiplyScalar(1 - 1.6 * dt);
+      p.v.y = Math.max(p.v.y, -0.22);
+      p.mesh.position.addScaledVector(p.v, dt);
+      p.mesh.position.x += Math.sin(this.time * 3 + p.ph) * 0.05 * dt;
+      if (p.mesh.position.y < 0.005) { p.mesh.position.y = 0.005; p.v.set(0, 0, 0); }
+      p.mesh.rotation.set(this.time * p.spin.x * 0.4, this.time * p.spin.y * 0.4, this.time * p.spin.z * 0.4);
+      p.mesh.material.opacity = 1;
+    }
+    this.punch = Math.max(0, (this.punch || 0) - dt * 2.2);
   }
 
   // ---------- 天候（雨・風・夜） ----------
@@ -1087,14 +1351,15 @@ export class Scene3D {
     this.spawnDrops(u.contactW.add(new THREE.Vector3(0.02, 0.01, 0)), 5, { speed: 0.6, size: 0.003 });
   }
 
-  judgeEffect(result, i = 0) {
+  judgeEffect(result, i = 0, streak = 1) {
     if (!this.ready) return;
     const at = this.units[i].contactW.add(new THREE.Vector3(0, 0.05, 0.03));
     if (result === 'PERFECT') {
       this.flash = 1;
-      this.sparkle(at, 26);
-      this.splash(1.6, i);
-      this.shake = Math.max(this.shake, 0.008);
+      this.sparkle(at, 60);
+      this.splash(2.2, i);
+      this.shake = Math.max(this.shake, 0.014);
+      this.perfectBurst(this.units[i].contactW, streak);
     } else if (result === 'GREAT') {
       this.sparkle(at, 12, 0xd8f5c8);
       this.splash(1.1, i);
@@ -1125,7 +1390,7 @@ export class Scene3D {
     if (!this.ready) return;
     this.frameDt = dt;
     this.time += dt;
-    this.flash = Math.max(0, this.flash - dt * 4);
+    this.flash = Math.max(0, this.flash - dt * 2.6);
     this.dark = Math.max(0, this.dark - dt * 1.4);
     this.shake = Math.max(0, this.shake - dt * 0.03);
 
@@ -1171,6 +1436,8 @@ export class Scene3D {
     this.waterNormal.offset.set(this.time * 0.013, this.time * 0.008);
     this.streamTex.offset.y = -this.time * 2.5 * this.flowK;
     this.updateWeather(dt);
+    this.updatePerfectFx(dt);
+    this.updatePond(dt);
   }
 
   /** 端末が重いときは解像度と影の精度を自動で下げる */
@@ -1212,9 +1479,12 @@ export class Scene3D {
     const az = this.camAz;
     // 2本目が出ているときは、2基の中間を見る
     const target = this.camTarget.clone();
-    target.z += -0.4 * this.twinK;
+    target.x += -0.5 * this.twinK;
+    target.z += -0.18 * this.twinK;
     target.y -= 0.08 * Math.max(0, Math.sin(el) - 0.4);
-    const dist = this.camDist * (1 + 0.3 * this.twinK) * (1 - 0.12 * Math.max(0, Math.sin(el) - 0.3));
+    // PERFECT の瞬間にぐっと寄る
+    const punch = Math.sin(Math.min(this.punch || 0, 1) * Math.PI / 2);
+    const dist = this.camDist * (1 + 0.3 * this.twinK) * (1 - 0.12 * Math.max(0, Math.sin(el) - 0.3)) * (1 - 0.14 * punch);
     const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
     const cam = target.clone().addScaledVector(dir, dist);
     if (this.shake > 0) {
@@ -1227,9 +1497,12 @@ export class Scene3D {
     this.renderer.render(this.scene, this.camera);
 
     if (this.fx) {
-      const a = this.flash > 0 ? this.flash * 0.45 : 0;
+      const a = this.flash > 0 ? this.flash * 0.6 : 0;
       const d = this.dark * 0.55;
-      this.fx.style.background = a > 0 ? `rgba(255,250,235,${a})` : d > 0 ? `rgba(0,0,0,${d})` : 'transparent';
+      // PERFECT：中心から金色に光る
+      this.fx.style.background = a > 0
+        ? `radial-gradient(circle at 50% 50%, rgba(255,246,214,${a}) 0%, rgba(255,214,120,${a * 0.6}) 45%, rgba(255,190,80,${a * 0.25}) 100%)`
+        : d > 0 ? `rgba(0,0,0,${d})` : 'transparent';
     }
   }
 

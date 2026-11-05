@@ -205,11 +205,18 @@ export class Sound {
     }
   }
 
-  judge(result) {
+  judge(result, streak = 1) {
     if (!this.ready) return;
     if (result === 'PERFECT') {
-      this.tone(1568, 0.35, 0.10, 'sine');
-      this.tone(2093, 0.45, 0.08, 'sine', 0.06);
+      // 陽音階を駆け上がる鈴のような音。連続するほど高く長く
+      const notes = [1175, 1319, 1568, 1760, 1976, 2349, 2637];
+      const n = Math.min(4 + Math.min(streak, 6) / 2, 7);
+      for (let k = 0; k < n; k++) {
+        this.tone(notes[k], 0.9 - k * 0.06, 0.07, 'sine', k * 0.055, 0.995);
+        this.tone(notes[k] * 2, 0.4, 0.025, 'sine', k * 0.055 + 0.005, 0.995);
+      }
+      this.burst(6000, 0.8, 0.6, 0.05, 'highpass');   // きらめき
+      this.tone(98, 0.6, 0.12, 'sine', 0, 0.9);       // 低い響き
     } else if (result === 'GREAT') {
       this.tone(1319, 0.3, 0.08, 'sine');
     } else if (result === 'GOOD') {

@@ -6,13 +6,14 @@ import {
 } from '../src/rules.js';
 import { ShishiOdoshi, ANGLE_REST, ANGLE_POUR } from '../src/shishi.js';
 
-test('判定幅: PERFECT 0.10 / GREAT 0.20 / GOOD 0.35 / それ以外 MISS', () => {
+test('判定幅: PERFECT 0.05 / GREAT 0.11 / GOOD 0.20 / それ以外 MISS', () => {
   assert.equal(judge(0), 'PERFECT');
-  assert.equal(judge(-0.1), 'PERFECT');
-  assert.equal(judge(0.15), 'GREAT');
-  assert.equal(judge(-0.2), 'GREAT');
-  assert.equal(judge(0.3), 'GOOD');
-  assert.equal(judge(-0.36), 'MISS');
+  assert.equal(judge(-0.05), 'PERFECT');
+  assert.equal(judge(0.08), 'GREAT');
+  assert.equal(judge(-0.11), 'GREAT');
+  assert.equal(judge(0.15), 'GOOD');
+  assert.equal(judge(-0.2), 'GOOD');
+  assert.equal(judge(-0.21), 'MISS');
   assert.equal(judge(1), 'MISS');
 });
 

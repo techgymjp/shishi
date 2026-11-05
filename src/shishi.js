@@ -10,6 +10,8 @@ export const ANGLE_POUR = 0.55;  // 水をこぼす角度
 const FILL_LIFT = 0.24;          // 満水までに水の重みで傾く角度
 const FILL_LIFT_FROM = 0.45;     // 水量がこの割合を超えると傾き始める
 const BOUNCE_TIME = 0.16;
+const SPILL_FROM = 0.3;          // 傾きがこの割合まで進むと水がこぼれ始める
+const SPILL_TO = 0.92;           // ここまでにこぼれきる
 
 export class ShishiOdoshi {
   constructor(params) {
@@ -33,7 +35,11 @@ export class ShishiOdoshi {
   get fill() {
     const p = this.params;
     if (this.phase === 'fill') return Math.min(this.t / p.fillDuration, 1);
-    if (this.phase === 'pour') return Math.max(1 - this.t / p.pourDuration, 0);
+    if (this.phase === 'pour') {
+      // 口が水面より下がってから流れ出す（傾き始めはまだこぼれない）
+      const k = this.t / p.pourDuration;
+      return k < SPILL_FROM ? 1 : Math.max(1 - (k - SPILL_FROM) / (SPILL_TO - SPILL_FROM), 0);
+    }
     return 0;
   }
 
