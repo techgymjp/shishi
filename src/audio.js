@@ -1,3 +1,5 @@
+import { TaishoKotoBGM } from './bgm.js';
+
 // サウンド（Web Audio で合成。外部音源ファイル不要）
 // 本番では録音した「カコーン！」に差し替える想定（企画書「グラフィック素材」）。
 
@@ -21,8 +23,17 @@ export class Sound {
       this.noise = this.makeNoise(2);
       this.startWater();
       if (this.weather) this.setWeather(this.weather);
+      this.bgm = new TaishoKotoBGM(this.ctx, this.master);
+      if (this.bgmOn !== false) this.bgm.start();
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  /** BGM（大正琴）のオン・オフ */
+  setBgm(on) {
+    this.bgmOn = on;
+    if (!this.bgm) return;
+    if (on) this.bgm.start(); else this.bgm.stop();
   }
 
   get ready() { return !!this.ctx && this.ctx.state === 'running'; }

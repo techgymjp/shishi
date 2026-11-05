@@ -29,7 +29,7 @@ const el = {
   btnRetry: $('btn-retry'), btnHome: $('btn-home'),
   optSound: $('opt-sound'), optVibe: $('opt-vibe'), records: $('records'), titles: $('titles'),
   btnSettingsClose: $('btn-settings-close'), btnReset: $('btn-reset'),
-  optGimmick: $('opt-gimmick'), banner: $('banner'),
+  optGimmick: $('opt-gimmick'), banner: $('banner'), optBgm: $('opt-bgm'),
 };
 
 // ---------- 端末内保存（読み書きに失敗しても遊べるように） ----------
@@ -38,11 +38,12 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 保存不可 */ } },
 };
 let stats = store.get('kakoon.stats', emptyStats());
-const settings = store.get('kakoon.settings', { sound: true, vibe: true, gimmick: 'auto' });
+const settings = store.get('kakoon.settings', { sound: true, bgm: true, vibe: true, gimmick: 'auto' });
 
 // ---------- 主要オブジェクト ----------
 const sound = new Sound();
 sound.setEnabled(settings.sound);
+sound.setBgm(settings.bgm);
 const renderer = new Scene3D(el.canvas, el.fx);
 // 鹿威し（2本目はギミック「2本の鹿威し」で登場）
 const units = [0, 1].map(() => ({
@@ -399,6 +400,7 @@ function showTitleGarden() {
 function openSettings() {
   el.optSound.checked = settings.sound;
   el.optVibe.checked = settings.vibe;
+  el.optBgm.checked = settings.bgm;
   el.optGimmick.value = settings.gimmick || 'auto';
   const rows = [
     ['累計プレイ回数', stats.plays],
@@ -444,6 +446,12 @@ el.btnSettings.addEventListener('click', openSettings);
 el.btnSettingsClose.addEventListener('click', () => el.settings.classList.remove('active'));
 el.optSound.addEventListener('change', () => setSound(el.optSound.checked));
 el.optVibe.addEventListener('change', () => { settings.vibe = el.optVibe.checked; store.set('kakoon.settings', settings); });
+el.optBgm.addEventListener('change', () => {
+  settings.bgm = el.optBgm.checked;
+  store.set('kakoon.settings', settings);
+  sound.unlock();
+  sound.setBgm(settings.bgm);
+});
 el.optGimmick.addEventListener('change', () => {
   settings.gimmick = el.optGimmick.value;
   store.set('kakoon.settings', settings);
