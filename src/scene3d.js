@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js';
 import { ANGLE_REST } from './shishi.js';
-import { buildTeahouse, buildDistantScenery } from './landscape.js';
+import { buildTeahouse, buildDistantScenery, buildKaresansui } from './landscape.js';
 
 // ---------- 寸法 ----------
 const PIVOT = new THREE.Vector3(0, 0.46, 0);
@@ -601,7 +601,7 @@ export class Scene3D {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#2a3a2c');
-    this.camera = new THREE.PerspectiveCamera(32, 1, 0.05, 200);
+    this.camera = new THREE.PerspectiveCamera(40, 1, 0.05, 200);
     this.camTarget = new THREE.Vector3(0.06, 0.4, 0);
     this.resize();
   }
@@ -745,6 +745,14 @@ export class Scene3D {
     this.teahouse = buildTeahouse(this, new THREE.Vector3(0.45, 0, -4.9));
     this.scenery = buildDistantScenery(this);
     this.buildSteppingStones();
+    // 枯山水：茶室の縁側から見て鹿威しの向こう側（手前）。石は低めにして、打ち石を隠さない位置に
+    buildKaresansui(this, new THREE.Vector3(0.15, 0, 1.45), 3.8, 1.6, [
+      { name: 'rock_moss_set_02_rock11', x: 1.15, z: -0.1, w: 0.42, h: 0.26, ry: 0.4, ring: 0.42, moss: 0.3 },   // 主石
+      { name: 'rock_moss_set_02_rock08', x: 1.5, z: 0.25, w: 0.24, h: 0.14, ry: 2.1, ring: 0.0, moss: 0.0 },     // 添え石
+      { name: 'rock_moss_set_02_rock09', x: 0.78, z: 0.22, w: 0.22, h: 0.12, ry: 1.2, ring: 0.0, moss: 0.0 },    // 添え石
+      { name: 'rock_moss_set_02_rock12', x: -1.25, z: 0.1, w: 0.3, h: 0.16, ry: 0.9, ring: 0.36, moss: 0.22 },
+      { name: 'rock_moss_set_02_rock10', x: -0.2, z: 0.35, w: 0.26, h: 0.08, ry: 2.6, ring: 0.3, moss: 0.0 },   // 平たい石
+    ]);
     this.buildWeather();
     pmrem.dispose();
   }
@@ -821,7 +829,7 @@ export class Scene3D {
     const { rocks, ferns } = this.assets;
     if (rocks) {
       const names = ['rock_moss_set_02_rock08', 'rock_moss_set_02_rock09', 'rock_moss_set_02_rock12', 'rock_moss_set_02_rock10', 'rock_moss_set_02_rock07'];
-      const spots = [[0.75, 0.32, 0.12, 0.2], [-0.45, 0.35, 0.13, 1.4], [-1.7, -0.9, 0.3, 2.2], [1.95, -1.25, 0.28, 0.8], [1.15, 0.6, 0.2, 2.6]];
+      const spots = [[1.05, 0.35, 0.12, 0.2], [-1.0, 0.3, 0.13, 1.4], [-1.7, -0.9, 0.3, 2.2], [1.95, -1.25, 0.28, 0.8], [2.35, 1.2, 0.2, 2.6]];
       spots.forEach(([x, z, s, ry], i) => {
         const src = rocks.scene.getObjectByName(names[i % names.length]);
         if (!src) return;
@@ -835,7 +843,7 @@ export class Scene3D {
     }
     this.ferns = [];
     if (ferns) {
-      const spots = [[-0.32, -0.62, 0.6], [1.3, -0.65, 0.6], [-1.6, 0.25, 0.9], [1.75, -0.2, 0.75], [-1.25, -1.35, 0.9], [0.7, 0.6, 0.45], [-0.3, 0.75, 0.5], [1.25, -1.45, 0.8]];
+      const spots = [[-0.32, -0.62, 0.6], [1.3, -0.65, 0.6], [-1.6, 0.25, 0.9], [1.75, -0.2, 0.75], [-1.25, -1.35, 0.9], [2.4, 0.6, 0.6], [-2.3, 1.3, 0.6], [1.25, -1.45, 0.8]];
       spots.forEach(([x, z, s], i) => {
         const src = ferns.scene.children[i % ferns.scene.children.length];
         const f = src.clone();
@@ -1506,13 +1514,38 @@ export class Scene3D {
     target.x += -0.5 * this.twinK;
     target.z += -0.18 * this.twinK;
     target.y -= 0.08 * Math.max(0, Math.sin(el) - 0.4);
+    // 茶室が見えている間は、視線を少し上げて奥へ向け、屋根まで入る構図にする
+    const thK = this.teahouse ? this.teahouse.fade : 0;
+    target.z += -0.45 * thK;
     // PERFECT の瞬間にぐっと寄る
     const punch = Math.sin(Math.min(this.punch || 0, 1) * Math.PI / 2);
     const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
     // どの角度から見ても、鹿威し（2本のときは両方）の石・竹筒の口・手水鉢が画面に収まる距離まで引く
     const base = this.camDist * (1 - 0.12 * Math.max(0, Math.sin(el) - 0.3));
-    const need = this.fitDistance(target, dir, base);
+    const roof = thK > 0.5 ? this.teahouse.roofPoint : null;
+    // まず鹿威しだけが収まる距離を求める
+    let plain = this.fitDistance(target, dir, base, null);
+    if (!Number.isFinite(plain)) plain = base * 3.5;
+    let need = plain;
+    const shift = new THREE.Vector3();
+    if (roof) {
+      // 屋根も入れる：視線の高さと左右のずらし方を何通りか試し、一番寄れるものを選ぶ
+      const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+      let best = Infinity;
+      const bestShift = new THREE.Vector3();
+      for (const dy of [0, 0.3, 0.6, 0.9, 1.2]) {
+        for (const dx of [-0.8, -0.4, 0, 0.4, 0.8]) {
+          const off = right.clone().multiplyScalar(dx); off.y = dy;
+          const d = this.fitDistance(target.clone().add(off), dir, base, roof, 2.2);
+          if (d < best - 0.05) { best = d; bestShift.copy(off); }
+        }
+      }
+      // 鹿威しが小さくなりすぎる角度では、屋根より鹿威しを優先する
+      if (best <= plain * (this.roofMaxRatio || 1.6)) { need = best; shift.copy(bestShift); }
+    }
     this.fitDist = this.fitDist ? this.fitDist + (need - this.fitDist) * Math.min(dt * 3, 1) : need;
+    this.camShift = this.camShift ? this.camShift.lerp(shift, Math.min(dt * 2, 1)) : shift.clone();
+    target.add(this.camShift);
     const dist = Math.max(base, this.fitDist) * (1 - 0.14 * punch);
     const cam = target.clone().addScaledVector(dir, dist);
     if (this.shake > 0) {
@@ -1539,7 +1572,7 @@ export class Scene3D {
    * 見せたい点がすべて画面内（HUD・下部の文字を避けた範囲）に入る最小の距離を二分探索で求める。
    * 石はタイミングの輪が切れないよう、さらに内側に収める。
    */
-  fitDistance(target, dir, base) {
+  fitDistance(target, dir, base, roof = null, maxScale = 3.5) {
     const pts = [];
     this.units.forEach((u) => {
       if (u.visibleK < 0.05) return;
@@ -1559,10 +1592,16 @@ export class Scene3D {
         const v = p.clone().project(cam);
         if (v.z > 1 || Math.abs(v.x) > 0.92 - m || v.y > 0.6 - m || v.y < -0.7 + m) return false;
       }
+      if (roof) {
+        // 屋根の棟：画面の上の方に入っていればよい（左右は多少はみ出してもよい）
+        const v = roof.clone().project(cam);
+        if (v.z > 1 || v.y > 0.88 || Math.abs(v.x) > 1.05) return false;
+      }
       return true;
     };
     if (fits(base)) return base;
-    let lo = base, hi = base * 3.5;
+    if (!fits(base * maxScale)) return Infinity;   // この条件では収まらない
+    let lo = base, hi = base * maxScale;
     for (let i = 0; i < 12; i++) {
       const mid = (lo + hi) / 2;
       if (fits(mid)) hi = mid; else lo = mid;

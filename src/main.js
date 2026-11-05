@@ -402,7 +402,7 @@ function showTitleGarden() {
 }
 
 // ---------- シェア ----------
-const SHARE_URL = 'https://techgymjp.github.io/shishi/';
+const SHARE_URL = 'https://techgym.jp/column/claude-code-game-shishi/';
 
 function shareText() {
   return t('鹿威しカコーンで{0}点！ PERFECT {1}回・最大コンボ {2} #鹿威しカコーン',
