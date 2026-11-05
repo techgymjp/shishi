@@ -746,7 +746,7 @@ export class Scene3D {
     this.scenery = buildDistantScenery(this);
     this.buildSteppingStones();
     // 枯山水：茶室の縁側から見て鹿威しの向こう側（手前）。石は低めにして、打ち石を隠さない位置に
-    buildKaresansui(this, new THREE.Vector3(0.15, 0, 1.45), 3.8, 1.6, [
+    buildKaresansui(this, new THREE.Vector3(0.15, 0, 2.3), 3.8, 1.6, [
       { name: 'rock_moss_set_02_rock11', x: 1.15, z: -0.1, w: 0.42, h: 0.26, ry: 0.4, ring: 0.42, moss: 0.3 },   // 主石
       { name: 'rock_moss_set_02_rock08', x: 1.5, z: 0.25, w: 0.24, h: 0.14, ry: 2.1, ring: 0.0, moss: 0.0 },     // 添え石
       { name: 'rock_moss_set_02_rock09', x: 0.78, z: 0.22, w: 0.22, h: 0.12, ry: 1.2, ring: 0.0, moss: 0.0 },    // 添え石
