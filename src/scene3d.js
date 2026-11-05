@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js';
 import { ANGLE_REST } from './shishi.js';
-import { buildTeahouse, buildDistantScenery, buildKaresansui } from './landscape.js';
+import { buildTeahouse, buildDistantScenery, buildKaresansui, buildPine } from './landscape.js';
 
 // ---------- 寸法 ----------
 const PIVOT = new THREE.Vector3(0, 0.46, 0);
@@ -210,6 +210,17 @@ function nodeRing(r, x, mat) {
   return ring;
 }
 
+
+/** 臨界減衰のばね：x を goal へ、速度も連続になめらかに近づける（カメラの急な動き出しを防ぐ） */
+function spring(state, key, goal, dt, w = 1.6) {
+  const vk = key + 'V';
+  if (state[key] === undefined) { state[key] = goal; state[vk] = 0; return goal; }
+  const v = state[vk] || 0;
+  const a = (goal - state[key]) * w * w - 2 * w * v;
+  state[vk] = v + a * dt;
+  state[key] += state[vk] * dt;
+  return state[key];
+}
 
 // 2本目の鹿威しを置く位置（ギミック「2本の鹿威し」）
 const UNIT_ORIGINS = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(-1.0, 0, -0.38)];
@@ -745,6 +756,8 @@ export class Scene3D {
     this.teahouse = buildTeahouse(this, new THREE.Vector3(0.45, 0, -4.9));
     this.scenery = buildDistantScenery(this);
     this.buildSteppingStones();
+    // B エリア（池と飛び石の右、茶室の横）に松。根元の庭石を添え石にする
+    this.pine = buildPine(this, new THREE.Vector3(2.55, 0, -1.75));
     // 枯山水：茶室の縁側から見て鹿威しの向こう側（手前）。石は低めにして、打ち石を隠さない位置に
     buildKaresansui(this, new THREE.Vector3(0.15, 0, 2.3), 3.8, 1.6, [
       { name: 'rock_moss_set_02_rock11', x: 1.15, z: -0.1, w: 0.42, h: 0.26, ry: 0.4, ring: 0.42, moss: 0.3 },   // 主石
@@ -843,7 +856,7 @@ export class Scene3D {
     }
     this.ferns = [];
     if (ferns) {
-      const spots = [[-0.32, -0.62, 0.6], [1.3, -0.65, 0.6], [-1.6, 0.25, 0.9], [1.75, -0.2, 0.75], [-1.25, -1.35, 0.9], [2.4, 0.6, 0.6], [-2.3, 1.3, 0.6], [1.25, -1.45, 0.8]];
+      const spots = [[-0.32, -0.62, 0.6], [1.3, -0.65, 0.6], [-1.6, 0.25, 0.9], [1.85, -0.45, 0.6], [-1.25, -1.35, 0.9], [2.4, 0.6, 0.6], [-2.3, 1.3, 0.6], [1.25, -1.45, 0.8]];
       spots.forEach(([x, z, s], i) => {
         const src = ferns.scene.children[i % ferns.scene.children.length];
         const f = src.clone();
@@ -1505,56 +1518,56 @@ export class Scene3D {
     const dt = this.frameDt || 0.016;
     this.units.forEach((u, i) => { if (sims[i]) u.draw(sims[i], glows[i] || 0, dt); else u.group.visible = false; });
 
-    // カメラ：左まわり（上から見て反時計回り）に庭を一周しながら、低い視点と高い視点をゆっくり行き来する
-    this.camAz += dt * (Math.PI * 2 / 90);
-    const el = 0.5 + 0.4 * Math.sin(this.time * 0.07 - 1.2);   // 約0.1〜0.9rad（地面すれすれ〜見下ろし）
-    const az = this.camAz;
-    // 2本目が出ているときは、2基の中間を見る
+    // カメラ：ショット（ゆっくり回る・下から・遠くから・上から・茶室を背景に）をランダムに切り替える
+    const shot = this.updateShot(dt);
+    const el = this.cam.el;
+    const az = this.cam.az;
+    // 注視点：鹿威し（2本のときは2基の中間）
     const target = this.camTarget.clone();
     target.x += -0.5 * this.twinK;
     target.z += -0.18 * this.twinK;
     target.y -= 0.08 * Math.max(0, Math.sin(el) - 0.4);
-    // 茶室が見えている間は、視線を少し上げて奥へ向け、屋根まで入る構図にする
-    const thK = this.teahouse ? this.teahouse.fade : 0;
-    target.z += -0.45 * thK;
-    // PERFECT の瞬間にぐっと寄る
+    const baseTarget = target.clone();
     const punch = Math.sin(Math.min(this.punch || 0, 1) * Math.PI / 2);
     const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
-    // どの角度から見ても、鹿威し（2本のときは両方）の石・竹筒の口・手水鉢が画面に収まる距離まで引く
     const base = this.camDist * (1 - 0.12 * Math.max(0, Math.sin(el) - 0.3));
-    const roof = thK > 0.5 ? this.teahouse.roofPoint : null;
-    // まず鹿威しだけが収まる距離を求める
-    let plain = this.fitDistance(target, dir, base, null);
-    if (!Number.isFinite(plain)) plain = base * 3.5;
-    let need = plain;
-    const shift = new THREE.Vector3();
+    // 鹿威し（石・竹筒の口・手水鉢）がすべて画面に収まる距離
+    let fit = this.fitDistance(target, dir, base, null);
+    if (!Number.isFinite(fit)) fit = base * 3.5;
+    let need = Math.max(fit, base * this.cam.dist);
+    // 茶室を背景にするショットでは、視線を上げて屋根まで入れる（左右にはずらさない）
+    let lift = 0;
+    const roof = shot.roof && this.teahouse && this.teahouse.fade > 0.5 ? this.teahouse.roofPoint : null;
     if (roof) {
-      // 屋根も入れる：視線の高さと左右のずらし方を何通りか試し、一番寄れるものを選ぶ
-      const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
       let best = Infinity;
-      const bestShift = new THREE.Vector3();
-      for (const dy of [0, 0.3, 0.6, 0.9, 1.2]) {
-        for (const dx of [-0.8, -0.4, 0, 0.4, 0.8]) {
-          const off = right.clone().multiplyScalar(dx); off.y = dy;
-          const d = this.fitDistance(target.clone().add(off), dir, base, roof, 2.2);
-          if (d < best - 0.05) { best = d; bestShift.copy(off); }
-        }
+      for (const dy of [0, 0.25, 0.5, 0.75, 1.0, 1.25]) {
+        const d = this.fitDistance(target.clone().add(new THREE.Vector3(0, dy, 0)), dir, base, roof, 2.2);
+        // 前回とほぼ同じなら前回の高さを使い続ける（揺れ防止）
+        const score = Math.abs(dy - (this.cam.liftGoal ?? 0)) < 0.01 ? d * 0.93 : d;
+        if (score < best) { best = score; lift = dy; this.cam.liftD = d; }
       }
-      // 鹿威しが小さくなりすぎる角度では、屋根より鹿威しを優先する
-      if (best <= plain * (this.roofMaxRatio || 1.6)) { need = best; shift.copy(bestShift); }
+      if (Number.isFinite(this.cam.liftD) && this.cam.liftD <= fit * 1.9) need = Math.max(need, this.cam.liftD);
+      else lift = 0;
     }
-    this.fitDist = this.fitDist ? this.fitDist + (need - this.fitDist) * Math.min(dt * 3, 1) : need;
-    this.camShift = this.camShift ? this.camShift.lerp(shift, Math.min(dt * 2, 1)) : shift.clone();
-    target.add(this.camShift);
-    const dist = Math.max(base, this.fitDist) * (1 - 0.14 * punch);
+    this.cam.liftGoal = lift;
+    spring(this.cam, 'lift', lift, dt, 1.0);
+    // 収まりきらないときはすぐ引く（石が画面から出ないように）。寄るときはゆっくり
+    if (this.fitDist === undefined || this.fitDist < fit) { this.fitDist = Math.max(this.fitDist ?? fit, fit); }
+    spring(this, 'fitDist', need, dt, 1.3);
+    if (this.fitDist < fit) { this.fitDist = fit; }
+    target.y += this.cam.lift;
+    const dist = this.fitDist * (1 - 0.14 * punch);
     const cam = target.clone().addScaledVector(dir, dist);
+    // 茶室・松を消す判定は、揺れ（演出）や視線の上げ下げの影響を受けない位置で行う
+    const stableCam = baseTarget.clone().addScaledVector(dir, this.fitDist);
     if (this.shake > 0) {
       cam.x += (Math.random() - 0.5) * this.shake * dist * 0.6;
       cam.y += (Math.random() - 0.5) * this.shake * dist * 0.6;
     }
     this.camera.position.copy(cam);
     this.camera.lookAt(target);
-    this.teahouse.update(dt, this.nightK, cam, target);
+    this.teahouse.update(dt, this.nightK, stableCam, baseTarget);
+    this.pine.update(dt, this.time, this.windK, stableCam, baseTarget);
 
     this.renderer.render(this.scene, this.camera);
 
@@ -1566,6 +1579,22 @@ export class Scene3D {
         ? `radial-gradient(circle at 50% 50%, rgba(255,246,214,${a}) 0%, rgba(255,214,120,${a * 0.6}) 45%, rgba(255,190,80,${a * 0.25}) 100%)`
         : d > 0 ? `rgba(0,0,0,${d})` : 'transparent';
     }
+  }
+
+  /**
+   * カメラの動き：一周（方位）は一定の速さで左まわり。
+   * 高さ（ローアングル⇔ハイアングル）と距離（近景⇔遠景）は、それぞれ別の周期でゆっくり行き来する。
+   * 周期がそろわない（90秒・41秒・59秒）ので、一周ごとに違う角度・高さ・距離の組み合わせになる。
+   */
+  updateShot(dt) {
+    const LAP = 90, EL_PERIOD = 41, DIST_PERIOD = 59;
+    if (!this.cam) this.cam = { az: 0.25, t: 0, lift: 0, liftGoal: 0 };
+    const c = this.cam;
+    c.t += dt;
+    c.az += dt * (Math.PI * 2 / LAP);                                         // 左まわり（上から見て反時計回り）
+    c.el = 0.52 - 0.47 * Math.cos((c.t / EL_PERIOD) * Math.PI * 2);           // 0.05（地面すれすれ）〜0.99（見下ろし）
+    c.dist = 1 + 0.55 * (1 - Math.cos((c.t / DIST_PERIOD) * Math.PI * 2 + 1.3)); // 1.0（近景）〜2.1（遠景）
+    return { roof: true };
   }
 
   /**

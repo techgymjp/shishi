@@ -264,6 +264,7 @@ export function buildTeahouse(s3, position) {
   s3.scene.add(grp);
   grp.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(grp).expandByScalar(0.25);
+  const boxWide = box.clone().expandByScalar(0.5);
   let time = 0;
 
   let fade = 1;
@@ -283,7 +284,10 @@ export function buildTeahouse(s3, position) {
       const dir = target.clone().sub(cam);
       const distToTarget = dir.length();
       const ray = new THREE.Ray(cam, dir.normalize());
-      const hit = box.containsPoint(cam) || (ray.intersectBox(box, new THREE.Vector3()) && ray.intersectBox(box, new THREE.Vector3()).distanceTo(cam) < distToTarget);
+      // 消えている間は判定を少し広げ、境目で出たり消えたりを繰り返さないようにする
+      const b = fade < 0.5 ? boxWide : box;
+      const hp = ray.intersectBox(b, new THREE.Vector3());
+      const hit = b.containsPoint(cam) || (hp && hp.distanceTo(cam) < distToTarget);
       const goal = hit ? 0 : 1;
       fade += (goal - fade) * Math.min(dt * 4, 1);
       const transparent = fade < 0.99;
@@ -640,6 +644,161 @@ export function buildCat(parent, mats, { y, z, xMin, xMax }) {
         zz.sp.position.set(0.18 + k * 0.08, 0.1 + k * 0.22, 0.02);
         zz.sp.material.opacity = state === 'sleep' && lie > 0.8 ? Math.sin(k * Math.PI) * 0.9 : 0;
       });
+    },
+  };
+}
+
+// ======================================================================
+// 松（黒松の庭木）：曲がった幹、鱗状の樹皮、玉づくりの葉の層
+// ======================================================================
+function pineBarkTex() {
+  return canvasTex(256, 512, (g, w, h) => {
+    const r = seeded(23);
+    g.fillStyle = '#4a3a30'; g.fillRect(0, 0, w, h);
+    // 亀甲状にひび割れた樹皮の板
+    for (let i = 0; i < 260; i++) {
+      const x = r() * w, y = r() * h, pw = 14 + r() * 26, ph = 22 + r() * 40;
+      const v = 70 + r() * 50;
+      g.fillStyle = `rgb(${v + 20 | 0},${v | 0},${v * 0.8 | 0})`;
+      g.beginPath(); g.ellipse(x, y, pw / 2, ph / 2, (r() - 0.5) * 0.4, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(20,14,10,0.7)'; g.lineWidth = 2; g.stroke();
+    }
+  }, { repeat: [1, 3] });
+}
+
+function pineNeedleTex() {
+  return canvasTex(256, 256, (g, w, h) => {
+    const r = seeded(29);
+    g.clearRect(0, 0, w, h);
+    // 針のような葉が放射状に集まった束をたくさん
+    for (let k = 0; k < 26; k++) {
+      const cx = w / 2 + (r() - 0.5) * w * 0.6, cy = h / 2 + (r() - 0.5) * h * 0.6;
+      if (Math.hypot(cx - w / 2, cy - h / 2) > w * 0.36) continue;
+      for (let i = 0; i < 28; i++) {
+        const a = r() * Math.PI * 2, l = 18 + r() * 26;
+        const v = 40 + r() * 45;
+        g.strokeStyle = `rgb(${v * 0.55 | 0},${v + 25 | 0},${v * 0.5 | 0})`;
+        g.lineWidth = 1.4;
+        g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * l, cy + Math.sin(a) * l); g.stroke();
+      }
+    }
+  });
+}
+
+export function buildPine(s3, position, seed = 3) {
+  const rnd = seeded(seed);
+  const grp = new THREE.Group();
+  grp.position.copy(position);
+  const mats = [];
+  const bark = new THREE.MeshStandardMaterial({ map: pineBarkTex(), roughness: 0.95 });
+  const needles = new THREE.MeshStandardMaterial({ map: pineNeedleTex(), alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.85, color: 0xd8e6c8 });
+  mats.push(bark, needles);
+
+  // 幹：根元から斜めに立ち上がり、途中で反対へ曲がる
+  const trunkPts = [[0, 0, 0], [0.08, 0.5, 0.05], [0.28, 1.0, 0.0], [0.22, 1.5, -0.12], [-0.05, 1.95, -0.1], [-0.15, 2.35, 0.0]]
+    .map(([x, y, z]) => new THREE.Vector3(x, y, z));
+  const trunkCurve = new THREE.CatmullRomCurve3(trunkPts);
+  const tube = (curve, r0, r1, segs = 24) => {
+    const g = new THREE.TubeGeometry(curve, segs, 1, 10, false);
+    // 根元から先端へ細くする
+    const pos = g.attributes.position;
+    const center = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      const seg = Math.floor(i / 11);
+      const t = seg / segs;
+      curve.getPointAt(Math.min(t, 1), center);
+      const v = new THREE.Vector3().fromBufferAttribute(pos, i).sub(center);
+      v.multiplyScalar(r0 + (r1 - r0) * t);
+      pos.setXYZ(i, center.x + v.x, center.y + v.y, center.z + v.z);
+    }
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(g, bark);
+    m.castShadow = true; m.receiveShadow = true;
+    grp.add(m);
+    return m;
+  };
+  tube(trunkCurve, 0.13, 0.04);
+  // 根張り
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.4;
+    const c = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.18, 0), new THREE.Vector3(Math.cos(a) * 0.18, 0.05, Math.sin(a) * 0.18), new THREE.Vector3(Math.cos(a) * 0.32, -0.02, Math.sin(a) * 0.32)]);
+    tube(c, 0.07, 0.02, 8);
+  }
+
+  // 枝と玉（葉の層）
+  const pads = [];
+  const tiers = [
+    { t: 0.42, dir: 2.6, len: 0.75, r: 0.55 },
+    { t: 0.55, dir: -0.6, len: 0.6, r: 0.48 },
+    { t: 0.7, dir: 1.2, len: 0.55, r: 0.44 },
+    { t: 0.82, dir: -2.2, len: 0.45, r: 0.38 },
+    { t: 1.0, dir: 0.3, len: 0.05, r: 0.42 },          // てっぺんの玉
+  ];
+  for (const tr of tiers) {
+    const base = trunkCurve.getPointAt(tr.t);
+    const end = base.clone().add(new THREE.Vector3(Math.cos(tr.dir) * tr.len, 0.08 + rnd() * 0.08, Math.sin(tr.dir) * tr.len));
+    if (tr.len > 0.1) {
+      const mid = base.clone().lerp(end, 0.5); mid.y += 0.1;
+      tube(new THREE.CatmullRomCurve3([base, mid, end]), 0.045, 0.02, 10);
+    }
+    pads.push({ c: end.clone().add(new THREE.Vector3(0, 0.06, 0)), r: tr.r, ph: rnd() * 6.28 });
+  }
+  // 玉：平たい楕円体の上半分に、針葉の束を並べる
+  const per = 120;
+  const leafGeo = new THREE.PlaneGeometry(0.22, 0.22);
+  const inst = new THREE.InstancedMesh(leafGeo, needles, pads.length * per);
+  inst.castShadow = true; inst.receiveShadow = true;
+  const items = [];
+  pads.forEach((pd, pi) => {
+    for (let i = 0; i < per; i++) {
+      const a = rnd() * Math.PI * 2, u = Math.sqrt(rnd());
+      const yy = rnd();
+      items.push({
+        pi,
+        off: new THREE.Vector3(Math.cos(a) * u * pd.r, (yy * (1 - u * 0.7) - 0.15) * pd.r * 0.45, Math.sin(a) * u * pd.r),   // 中央が盛り上がった平たい玉
+        rot: new THREE.Euler(-Math.PI / 2 + (rnd() - 0.5) * 1.2, rnd() * Math.PI * 2, (rnd() - 0.5) * 1.2),
+        s: 0.8 + rnd() * 0.6,
+      });
+    }
+  });
+  grp.add(inst);
+  s3.scene.add(grp);
+  grp.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(grp).expandByScalar(0.15);
+  const boxWide = box.clone().expandByScalar(0.4);
+
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), v = new THREE.Vector3();
+  let fade = 1;
+  return {
+    group: grp,
+    update(dt, time, windK, cam, target) {
+      // 玉がそよぐ（風のギミックで大きく）
+      items.forEach((it, i) => {
+        const pd = pads[it.pi];
+        const sway = Math.sin(time * 1.1 + pd.ph) * (0.01 + 0.04 * windK);
+        v.copy(pd.c).add(it.off);
+        v.x += sway; v.z += sway * 0.5;
+        q.setFromEuler(it.rot);
+        sc.setScalar(it.s);
+        m4.compose(v, q, sc);
+        inst.setMatrixAt(i, m4);
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      // カメラと鹿威しの間に入ったら消す（茶室と同じ）
+      const dir = target.clone().sub(cam);
+      const distToTarget = dir.length();
+      const ray = new THREE.Ray(cam, dir.normalize());
+      const b = fade < 0.5 ? boxWide : box;
+      const hitP = ray.intersectBox(b, new THREE.Vector3());
+      const hit = b.containsPoint(cam) || (hitP && hitP.distanceTo(cam) < distToTarget);
+      fade += ((hit ? 0 : 1) - fade) * Math.min(dt * 4, 1);
+      const transparent = fade < 0.99;
+      for (const m of mats) {
+        if (m.transparent !== transparent) { m.transparent = transparent; m.needsUpdate = true; }
+        m.opacity = fade;
+        m.depthWrite = !transparent;
+      }
+      grp.visible = fade > 0.02;
     },
   };
 }
