@@ -12,6 +12,6 @@ Web向けに縮小・再圧縮して使っています。
 | `textures/clean_pebbles_*` | [Clean Pebbles](https://polyhaven.com/a/clean_pebbles) |
 | `textures/mossy_rock_*` | [Mossy Rock](https://polyhaven.com/a/mossy_rock) |
 
-竹（鹿威し・筧・竹垣）の質感と石灯籠・手水鉢の形は、プログラムで生成しています。
+竹（鹿威し・筧・竹林）・茶室（土壁・茅葺き・障子・木）・もみじの質感と、石灯籠・手水鉢・茶室の形は、プログラムで生成しています。
 
 3D描画ライブラリ：[three.js](https://threejs.org/) r180（MIT License、`vendor/three/LICENSE`）

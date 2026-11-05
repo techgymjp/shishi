@@ -7,6 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js';
 import { ANGLE_REST } from './shishi.js';
+import { buildTeahouse, buildDistantScenery } from './landscape.js';
 
 // ---------- 寸法 ----------
 const PIVOT = new THREE.Vector3(0, 0.46, 0);
@@ -692,9 +693,12 @@ export class Scene3D {
     sun.position.set(-1.6, 3.2, 1.6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.left = -2; sun.shadow.camera.right = 2;
-    sun.shadow.camera.top = 2; sun.shadow.camera.bottom = -2;
-    sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 9;
+    sun.shadow.camera.left = -3.8; sun.shadow.camera.right = 3.8;
+    sun.shadow.camera.top = 3.8; sun.shadow.camera.bottom = -3.8;
+    sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 14;
+    sun.target.position.set(0.3, 0, -2.2);
+    sun.position.set(-1.3, 3.6, 0.2);
+    scene.add(sun.target);
     sun.shadow.bias = -0.0004;
     sun.shadow.normalBias = 0.02;
     sun.shadow.radius = 4;
@@ -703,8 +707,9 @@ export class Scene3D {
     this.sunDay = new THREE.Color(0xfff1d6);
     this.sunNight = new THREE.Color(0x8fa8ff);
 
-    const groundMat = this.pbrMaterial(assets.ground, 7, { alphaMap: radialAlpha(0.55), transparent: true });
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(3.2, 64), groundMat);
+    const groundMat = this.pbrMaterial(assets.ground, 15, { alphaMap: radialAlpha(0.72), transparent: true });
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(7, 96), groundMat);
+    ground.position.z = -1.2;
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
@@ -734,9 +739,12 @@ export class Scene3D {
     this.units = UNIT_ORIGINS.map((o, i) => new ShishiUnit(this, o, i));
     this.units[1].visibleK = 0;
     this.buildLantern();
-    this.buildFence();
     this.buildPlants();
     this.buildStreamAndPond();
+    // 池の向こうの茶室と、遠景の竹林・もみじ
+    this.teahouse = buildTeahouse(this, new THREE.Vector3(0.45, 0, -4.9));
+    this.scenery = buildDistantScenery(this);
+    this.buildSteppingStones();
     this.buildWeather();
     pmrem.dispose();
   }
@@ -804,7 +812,7 @@ export class Scene3D {
         grp.add(k);
       }
     }
-    grp.position.set(0.1, 0, -2.1);
+    grp.position.set(0.4, 0, -5.4);
     this.scene.add(grp);
   }
 
@@ -1058,6 +1066,21 @@ export class Scene3D {
     // 小川が池に流れ込むところ
     if (Math.random() < dt * 4) {
       this.ripple(P.x, P.z + 0.4, 0.05, 0.04);
+    }
+  }
+
+  /** 池のほとりから茶室の沓脱石へ続く飛び石 */
+  buildSteppingStones() {
+    const rnd = seeded(91);
+    const pts = [[0.0, -1.95], [0.32, -2.22], [0.62, -2.48], [0.98, -2.7], [1.18, -2.98]];
+    for (const [x, z] of pts) {
+      const g = new THREE.CylinderGeometry(1, 1, 1, 9);
+      const st = new THREE.Mesh(g, this.rockMat);
+      st.scale.set(0.15 + rnd() * 0.04, 0.05, 0.12 + rnd() * 0.04);
+      st.position.set(x, 0.02, z);
+      st.rotation.y = rnd() * 3;
+      st.castShadow = true; st.receiveShadow = true;
+      this.scene.add(st);
     }
   }
 
@@ -1438,6 +1461,7 @@ export class Scene3D {
     this.updateWeather(dt);
     this.updatePerfectFx(dt);
     this.updatePond(dt);
+    this.scenery.update(this.time, this.windK);
   }
 
   /** 端末が重いときは解像度と影の精度を自動で下げる */
@@ -1497,6 +1521,7 @@ export class Scene3D {
     }
     this.camera.position.copy(cam);
     this.camera.lookAt(target);
+    this.teahouse.update(dt, this.nightK, cam, target);
 
     this.renderer.render(this.scene, this.camera);
 
