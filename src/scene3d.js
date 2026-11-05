@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { GroundedSkybox } from 'three/addons/objects/GroundedSkybox.js';
 import { ANGLE_REST } from './shishi.js';
-import { buildTeahouse, buildDistantScenery, buildKaresansui, buildPine } from './landscape.js';
+import { buildTeahouse, buildDistantScenery, buildKaresansui, buildPine, buildWeepingCherry } from './landscape.js';
 
 // ---------- 寸法 ----------
 const PIVOT = new THREE.Vector3(0, 0.46, 0);
@@ -455,9 +455,11 @@ class ShishiUnit {
     this.halo.scale.setScalar(0.45);
     this.halo.position.copy(this.contactL).add(new THREE.Vector3(0, 0.02, 0.05));
     this.add(this.halo);
+    // ライトは非表示にするグループの外（シーン直下）に置く。
+    // ライトの数が変わると全素材の描画プログラムが作り直され、画面が止まるため。
     this.glowLight = new THREE.PointLight(0xffd27a, 0, 0.9, 2);
-    this.glowLight.position.copy(this.contactL).add(new THREE.Vector3(0.02, 0.12, 0.15));
-    this.add(this.glowLight);
+    this.glowLight.position.copy(this.contactL).add(new THREE.Vector3(0.02, 0.12, 0.15)).add(this.origin);
+    s3.scene.add(this.glowLight);
   }
 
   /** タップへの反応（見た目だけ。衝突時刻＝判定の基準は変えない） */
@@ -487,7 +489,7 @@ class ShishiUnit {
     const s3 = this.s3;
     // 出入りのフェード（2本目の鹿威し）
     this.group.visible = this.visibleK > 0.01;
-    if (!this.group.visible) return;
+    if (!this.group.visible) { this.glowLight.intensity = 0; return; }
     const sc = 0.6 + 0.4 * this.visibleK;
     this.group.scale.setScalar(sc);
     this.group.position.set(this.origin.x, (1 - this.visibleK) * -0.3, this.origin.z);
@@ -547,8 +549,7 @@ class ShishiUnit {
       const t = (k / 10) * tEnd;
       pts.push(new THREE.Vector3(sx + vx * t, sy - 0.5 * G * t * t, sz + vz * t));
     }
-    this.spoutStream.geometry.dispose();
-    this.spoutStream.geometry = s3.streamGeometry(pts, 0.0042 * (0.8 + 0.4 * s3.flowK));
+    s3.updateStream(this.spoutStream, pts, 0.0042 * (0.8 + 0.4 * s3.flowK));
     if (Math.random() < 0.5) {
       const end = this.group.localToWorld(pts[pts.length - 1].clone());
       s3.spawnDrops(end, 1, { speed: 0.3, size: 0.002 });
@@ -567,8 +568,7 @@ class ShishiUnit {
         const t = (k / 10) * ty;
         pp.push(new THREE.Vector3(lipL.x + dirOut.x * v * t, lipL.y + dirOut.y * v * t - 0.5 * G * t * t, 0));
       }
-      this.pourStream.geometry.dispose();
-      this.pourStream.geometry = s3.streamGeometry(pp, (0.006 + fill * 0.012) * this.size);
+      s3.updateStream(this.pourStream, pp, (0.006 + fill * 0.012) * this.size);
       this.pourStream.visible = true;
       const pend = this.group.localToWorld(pp[pp.length - 1].clone());
       this.lastPourEnd = pend;
@@ -580,7 +580,7 @@ class ShishiUnit {
 
     // タイミングの光
     this.halo.material.opacity = glow * 0.75;
-    this.glowLight.intensity = glow * 0.9;
+    this.glowLight.intensity = glow * 0.9 * this.visibleK;
   }
 }
 
@@ -647,6 +647,38 @@ export class Scene3D {
     this.build();
     this.ready = true;
     this.resize();
+    await this.precompile();
+  }
+
+  /**
+   * 途中で初めて現れるもの（PERFECT の演出、雨、2本目の鹿威し など）の描画プログラムを、
+   * 読み込み中に作っておく。プレイ中に初めて表示したときに画面が止まるのを防ぐ。
+   */
+  async precompile() {
+    const hidden = [], culled = [];
+    this.scene.traverse((o) => {
+      if (!o.visible) { hidden.push(o); o.visible = true; }
+      if (o.frustumCulled) { culled.push(o); o.frustumCulled = false; }   // 画面外のものも描いてプログラムを作る
+    });
+    const g = this.units[1].group;
+    const v1 = this.units[1].visibleK;
+    try {
+      if (this.renderer.compileAsync) await this.renderer.compileAsync(this.scene, this.camera);
+      else this.renderer.compile(this.scene, this.camera);
+      // 影の描画プログラムも作るため、1回だけ描画しておく
+      this.camera.position.set(0, 3, 6); this.camera.lookAt(0, 0.4, 0);
+      this.renderer.render(this.scene, this.camera);
+    } catch (e) { console.warn(e); }
+    for (const o of hidden) o.visible = false;
+    for (const o of culled) o.frustumCulled = true;
+    g.visible = v1 > 0.01;
+  }
+
+  /** カメラの開始位置を毎回ランダムにする（方位・高さの周期・距離の周期） */
+  randomizeCamera() {
+    this.cam = { az: Math.random() * Math.PI * 2, t: Math.random() * 200, lift: 0, liftGoal: 0 };
+    this.fitDist = undefined;
+    this.fitDistV = 0;
   }
 
   pbrMaterial(set, repeat, extra = {}) {
@@ -758,6 +790,8 @@ export class Scene3D {
     this.buildSteppingStones();
     // B エリア（池と飛び石の右、茶室の横）に松。根元の庭石を添え石にする
     this.pine = buildPine(this, new THREE.Vector3(2.55, 0, -1.75));
+    // A エリア（石灯籠の左、茶室の左手）にしだれ桜。右の松と対にする
+    this.cherry = buildWeepingCherry(this, new THREE.Vector3(-2.8, 0, -2.0));
     // 枯山水：茶室の縁側から見て鹿威しの向こう側（手前）。石は低めにして、打ち石を隠さない位置に
     buildKaresansui(this, new THREE.Vector3(0.15, 0, 2.3), 3.8, 1.6, [
       { name: 'rock_moss_set_02_rock11', x: 1.15, z: -0.1, w: 0.42, h: 0.26, ry: 0.4, ring: 0.42, moss: 0.3 },   // 主石
@@ -856,7 +890,7 @@ export class Scene3D {
     }
     this.ferns = [];
     if (ferns) {
-      const spots = [[-0.32, -0.62, 0.6], [1.3, -0.65, 0.6], [-1.6, 0.25, 0.9], [1.85, -0.45, 0.6], [-1.25, -1.35, 0.9], [2.4, 0.6, 0.6], [-2.3, 1.3, 0.6], [1.25, -1.45, 0.8]];
+      const spots = [[-0.32, -0.62, 0.6], [1.3, -0.65, 0.6], [-1.6, 0.25, 0.9], [1.85, -0.45, 0.6], [-1.3, -1.05, 0.7], [2.4, 0.6, 0.6], [-2.3, 1.3, 0.6], [1.25, -1.45, 0.8]];
       spots.forEach(([x, z, s], i) => {
         const src = ferns.scene.children[i % ferns.scene.children.length];
         const f = src.clone();
@@ -1338,6 +1372,48 @@ export class Scene3D {
     }
   }
 
+  /**
+   * 水流のチューブを、形（頂点の数）は使い回して座標だけ更新する。
+   * 毎フレーム新しく作るとメモリの掃除が増え、カクつきの原因になる。
+   */
+  updateStream(mesh, pts, radius, radial = 8) {
+    const n = pts.length;
+    let g = mesh.geometry;
+    if (!g.userData.stream || g.userData.n !== n) {
+      g.dispose();
+      g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * (radial + 1) * 3), 3));
+      g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * (radial + 1) * 3), 3));
+      const uv = new Float32Array(n * (radial + 1) * 2), idx = [];
+      for (let i = 0; i < n; i++) for (let j = 0; j <= radial; j++) {
+        uv[(i * (radial + 1) + j) * 2] = j / radial; uv[(i * (radial + 1) + j) * 2 + 1] = i / (n - 1);
+        if (i < n - 1 && j < radial) { const a = i * (radial + 1) + j, b = a + radial + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+      }
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.userData = { stream: true, n };
+      mesh.geometry = g;
+    }
+    const pos = g.attributes.position.array, nor = g.attributes.normal.array;
+    const t = this._t || (this._t = new THREE.Vector3()), nn = this._n || (this._n = new THREE.Vector3()), bb = this._b || (this._b = new THREE.Vector3());
+    for (let i = 0; i < n; i++) {
+      const a = pts[Math.max(i - 1, 0)], c = pts[Math.min(i + 1, n - 1)];
+      t.subVectors(c, a).normalize();
+      nn.set(0, 0, 1).cross(t); if (nn.lengthSq() < 1e-6) nn.set(1, 0, 0).cross(t); nn.normalize();
+      bb.crossVectors(t, nn);
+      for (let j = 0; j <= radial; j++) {
+        const th = (j / radial) * Math.PI * 2, cs = Math.cos(th), sn = Math.sin(th);
+        const o = (i * (radial + 1) + j) * 3;
+        const nx = nn.x * cs + bb.x * sn, ny = nn.y * cs + bb.y * sn, nz = nn.z * cs + bb.z * sn;
+        pos[o] = pts[i].x + nx * radius; pos[o + 1] = pts[i].y + ny * radius; pos[o + 2] = pts[i].z + nz * radius;
+        nor[o] = nx; nor[o + 1] = ny; nor[o + 2] = nz;
+      }
+    }
+    g.attributes.position.needsUpdate = true;
+    g.attributes.normal.needsUpdate = true;
+    g.computeBoundingSphere();
+  }
+
   streamGeometry(points, radius) {
     const curve = new THREE.CatmullRomCurve3(points);
     return new THREE.TubeGeometry(curve, Math.max(points.length * 2, 8), radius, 8, false);
@@ -1516,7 +1592,7 @@ export class Scene3D {
     if (!this.ready) { this.renderer.clear(); return; }
     if (!document.hidden) this.adaptQuality();
     const dt = this.frameDt || 0.016;
-    this.units.forEach((u, i) => { if (sims[i]) u.draw(sims[i], glows[i] || 0, dt); else u.group.visible = false; });
+    this.units.forEach((u, i) => { if (sims[i]) u.draw(sims[i], glows[i] || 0, dt); else { u.group.visible = false; u.glowLight.intensity = 0; } });
 
     // カメラ：ショット（ゆっくり回る・下から・遠くから・上から・茶室を背景に）をランダムに切り替える
     const shot = this.updateShot(dt);
@@ -1568,6 +1644,7 @@ export class Scene3D {
     this.camera.lookAt(target);
     this.teahouse.update(dt, this.nightK, stableCam, baseTarget);
     this.pine.update(dt, this.time, this.windK, stableCam, baseTarget);
+    this.cherry.update(dt, this.time, this.windK, stableCam, baseTarget);
 
     this.renderer.render(this.scene, this.camera);
 
@@ -1588,7 +1665,7 @@ export class Scene3D {
    */
   updateShot(dt) {
     const LAP = 90, EL_PERIOD = 41, DIST_PERIOD = 59;
-    if (!this.cam) this.cam = { az: 0.25, t: 0, lift: 0, liftGoal: 0 };
+    if (!this.cam) this.randomizeCamera();
     const c = this.cam;
     c.t += dt;
     c.az += dt * (Math.PI * 2 / LAP);                                         // 左まわり（上から見て反時計回り）

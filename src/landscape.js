@@ -254,13 +254,15 @@ export function buildTeahouse(s3, position) {
   kutsu.scale.set(1.3, 0.4, 0.9);
 
   // 夜の室内の灯り
+  // ライトはグループの外（シーン直下）に置き、茶室を消しても数が変わらないようにする
   const light = new THREE.PointLight(0xffbe70, 0, 4, 1.8);
-  light.position.set(0, 1.3, D / 2 + 0.4);
-  grp.add(light);
+  light.position.set(position.x, 1.3, position.z + D / 2 + 0.4);
+  s3.scene.add(light);
 
   // 縁側の猫
   const cat = buildCat(grp, mats, { y: FLOOR, z: D / 2 + 0.3, xMin: -W / 2 + 0.15, xMax: W / 2 - 0.15 });
 
+  for (const m of mats) m.transparent = true;   // 透け具合を変えても描画プログラムを作り直さないように
   s3.scene.add(grp);
   grp.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(grp).expandByScalar(0.25);
@@ -279,7 +281,7 @@ export function buildTeahouse(s3, position) {
       time += dt;
       cat.update(dt, time, nightK > 0.5);
       for (const m of shojiMats) m.emissiveIntensity = 0.05 + nightK * 1.1;
-      light.intensity = nightK * 2.4;
+      light.intensity = nightK * 2.4 * fade;
       // カメラと鹿威しの間に茶室があれば、透かして見えるようにする
       const dir = target.clone().sub(cam);
       const distToTarget = dir.length();
@@ -292,7 +294,8 @@ export function buildTeahouse(s3, position) {
       fade += (goal - fade) * Math.min(dt * 4, 1);
       const transparent = fade < 0.99;
       for (const m of mats) {
-        if (m.transparent !== transparent) { m.transparent = transparent; m.needsUpdate = true; }
+        // transparent は最初から true に固定（切り替えると描画プログラムの作り直しで画面が止まる）
+        if (!m.transparent) { m.transparent = true; m.needsUpdate = true; }
         m.opacity = fade;
         m.depthWrite = !transparent;
       }
@@ -762,6 +765,7 @@ export function buildPine(s3, position, seed = 3) {
     }
   });
   grp.add(inst);
+  for (const m of mats) m.transparent = true;   // 透け具合を変えても描画プログラムを作り直さないように
   s3.scene.add(grp);
   grp.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(grp).expandByScalar(0.15);
@@ -794,7 +798,183 @@ export function buildPine(s3, position, seed = 3) {
       fade += ((hit ? 0 : 1) - fade) * Math.min(dt * 4, 1);
       const transparent = fade < 0.99;
       for (const m of mats) {
-        if (m.transparent !== transparent) { m.transparent = transparent; m.needsUpdate = true; }
+        // transparent は最初から true に固定（切り替えると描画プログラムの作り直しで画面が止まる）
+        if (!m.transparent) { m.transparent = true; m.needsUpdate = true; }
+        m.opacity = fade;
+        m.depthWrite = !transparent;
+      }
+      grp.visible = fade > 0.02;
+    },
+  };
+}
+
+// ======================================================================
+// しだれ桜：太い幹から上がった枝が、花をつけた細い枝をカーテンのように垂らす。花びらが舞う
+// ======================================================================
+function cherryBarkTex() {
+  return canvasTex(256, 512, (g, w, h) => {
+    const r = seeded(37);
+    g.fillStyle = '#4b3934'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 2500; i++) { const v = 50 + r() * 40; g.fillStyle = `rgba(${v + 15 | 0},${v | 0},${v | 0},0.5)`; g.fillRect(r() * w, r() * h, 2, 2); }
+    // 桜の樹皮に特有の横長の皮目
+    for (let i = 0; i < 160; i++) {
+      g.fillStyle = `rgba(${150 + r() * 40 | 0},${120 + r() * 30 | 0},${105 + r() * 20 | 0},0.7)`;
+      g.fillRect(r() * w, r() * h, 10 + r() * 22, 2 + r() * 2);
+    }
+  }, { repeat: [1, 3] });
+}
+
+function blossomTex() {
+  return canvasTex(256, 256, (g, w, h) => {
+    const r = seeded(43);
+    g.clearRect(0, 0, w, h);
+    for (let k = 0; k < 40; k++) {
+      const cx = w / 2 + (r() - 0.5) * w * 0.7, cy = h / 2 + (r() - 0.5) * h * 0.7;
+      if (Math.hypot(cx - w / 2, cy - h / 2) > w * 0.4) continue;
+      const rad = 9 + r() * 7;
+      const pink = [255, 214 + r() * 26, 222 + r() * 22];   // 白に近い淡い桜色
+      // 5枚の花びら
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + r();
+        g.fillStyle = `rgba(${pink[0]},${pink[1] | 0},${pink[2] | 0},0.95)`;
+        g.beginPath(); g.ellipse(cx + Math.cos(a) * rad * 0.55, cy + Math.sin(a) * rad * 0.55, rad * 0.55, rad * 0.38, a, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = 'rgba(220,90,120,0.9)';
+      g.beginPath(); g.arc(cx, cy, rad * 0.22, 0, Math.PI * 2); g.fill();
+    }
+  });
+}
+
+export function buildWeepingCherry(s3, position, seed = 5) {
+  const rnd = seeded(seed);
+  const grp = new THREE.Group();
+  grp.position.copy(position);
+  const bark = new THREE.MeshStandardMaterial({ map: cherryBarkTex(), roughness: 0.9 });
+  const flowers = new THREE.MeshStandardMaterial({ map: blossomTex(), alphaTest: 0.35, side: THREE.DoubleSide, roughness: 0.7, emissive: 0xffd0dc, emissiveIntensity: 0.22 });
+  const mats = [bark, flowers];
+
+  const tube = (pts, r0, r1, segs = 16, radial = 8) => {
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const g = new THREE.TubeGeometry(curve, segs, 1, radial, false);
+    const pos = g.attributes.position, center = new THREE.Vector3(), v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      const t = Math.floor(i / (radial + 1)) / segs;
+      curve.getPointAt(Math.min(t, 1), center);
+      v.fromBufferAttribute(pos, i).sub(center).multiplyScalar(r0 + (r1 - r0) * t);
+      pos.setXYZ(i, center.x + v.x, center.y + v.y, center.z + v.z);
+    }
+    g.computeVertexNormals();
+    const m = new THREE.Mesh(g, bark);
+    m.castShadow = true; m.receiveShadow = true;
+    grp.add(m);
+    return curve;
+  };
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  // 幹と根張り
+  tube([V(0, 0, 0), V(0.1, 0.6, 0.05), V(-0.05, 1.2, 0), V(0.05, 1.7, -0.05)], 0.2, 0.11, 18, 12);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + 0.3;
+    tube([V(0, 0.25, 0), V(Math.cos(a) * 0.22, 0.06, Math.sin(a) * 0.22), V(Math.cos(a) * 0.4, -0.02, Math.sin(a) * 0.4)], 0.09, 0.025, 8);
+  }
+  // 主枝：上へ広がる
+  const crowns = [];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + rnd() * 0.5;
+    const top = V(Math.cos(a) * (0.55 + rnd() * 0.3), 2.5 + rnd() * 0.5, Math.sin(a) * (0.55 + rnd() * 0.3));
+    tube([V(0.05, 1.6, -0.05), V(Math.cos(a) * 0.25, 2.0, Math.sin(a) * 0.25), top], 0.08, 0.03, 12);
+    crowns.push({ p: top, a });
+  }
+  // 垂れ枝と花
+  const blooms = [];
+  const hangs = [];
+  crowns.forEach((c) => {
+    for (let k = 0; k < 11; k++) {
+      const a = c.a + (rnd() - 0.5) * 2.2;
+      const reach = 0.5 + rnd() * 0.7;
+      const drop = 1.4 + rnd() * 0.9;               // 垂れ下がる長さ
+      const p0 = c.p.clone();
+      const p1 = p0.clone().add(V(Math.cos(a) * reach * 0.6, 0.25, Math.sin(a) * reach * 0.6));
+      const p2 = p0.clone().add(V(Math.cos(a) * reach, -drop * 0.35, Math.sin(a) * reach));
+      const p3 = p0.clone().add(V(Math.cos(a) * (reach + 0.1), -drop, Math.sin(a) * (reach + 0.1)));
+      const curve = tube([p0, p1, p2, p3], 0.01, 0.003, 12, 5);
+      const hi = hangs.length;
+      hangs.push({ ph: rnd() * 6.28 });
+      for (let n = 0; n < 24; n++) {
+        const t = 0.15 + (n / 24) * 0.85;
+        const p = curve.getPointAt(t);
+        blooms.push({ base: p, hi, depth: t, rot: new THREE.Euler(rnd() * 6.28, rnd() * 6.28, rnd() * 6.28), s: 0.7 + rnd() * 0.6 });
+      }
+    }
+    // 枝先のこんもりした花
+    for (let n = 0; n < 30; n++) {
+      blooms.push({ base: c.p.clone().add(V((rnd() - 0.5) * 0.9, (rnd() - 0.2) * 0.5, (rnd() - 0.5) * 0.9)), hi: -1, depth: 0, rot: new THREE.Euler(rnd() * 6.28, rnd() * 6.28, rnd() * 6.28), s: 0.9 + rnd() * 0.6 });
+    }
+  });
+  const flowerMesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(0.25, 0.25), flowers, blooms.length);
+  flowerMesh.castShadow = true;
+  grp.add(flowerMesh);
+
+  // 舞い落ちる花びら
+  const petalMat = new THREE.MeshStandardMaterial({ color: 0xffd3e0, side: THREE.DoubleSide, roughness: 0.6, emissive: 0xff9fb8, emissiveIntensity: 0.25 });
+  mats.push(petalMat);
+  const petalGeo = new THREE.CircleGeometry(0.012, 6); petalGeo.scale(1, 0.65, 1);
+  const petals = [];
+  for (let i = 0; i < 45; i++) {
+    const m = new THREE.Mesh(petalGeo, petalMat);
+    grp.add(m);
+    const pt = { m, p: V(0, 0, 0), ph: rnd() * 6.28, spin: V(rnd() * 5, rnd() * 5, rnd() * 5), life: rnd() * 8 };
+    pt.reset = () => { const a = rnd() * 6.28, r = 0.3 + rnd() * 1.2; pt.p.set(Math.cos(a) * r, 1.2 + rnd() * 1.6, Math.sin(a) * r); pt.life = 0; };
+    pt.reset();
+    petals.push(pt);
+  }
+
+  for (const m of mats) m.transparent = true;   // 透け具合を変えても描画プログラムを作り直さないように
+  s3.scene.add(grp);
+  grp.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(grp).expandByScalar(0.1);
+  const boxWide = box.clone().expandByScalar(0.4);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), v = new THREE.Vector3();
+  let fade = 1;
+  return {
+    group: grp,
+    update(dt, time, windK, cam, target) {
+      // 垂れ枝の花がゆれる（下ほど大きく）
+      const amp = 0.025 + 0.09 * windK;
+      blooms.forEach((b, i) => {
+        v.copy(b.base);
+        if (b.hi >= 0) {
+          const ph = hangs[b.hi].ph;
+          const sw = Math.sin(time * 0.9 + ph) * amp * b.depth * b.depth;
+          v.x += sw; v.z += sw * 0.6;
+        }
+        q.setFromEuler(b.rot);
+        sc.setScalar(b.s);
+        m4.compose(v, q, sc);
+        flowerMesh.setMatrixAt(i, m4);
+      });
+      flowerMesh.instanceMatrix.needsUpdate = true;
+      // 花びらがひらひら落ちる
+      for (const pt of petals) {
+        pt.life += dt;
+        pt.p.y -= dt * 0.25;
+        pt.p.x += (Math.sin(time * 1.3 + pt.ph) * 0.12 + 0.05 + windK * 0.4) * dt;
+        pt.p.z += Math.cos(time * 1.1 + pt.ph) * 0.08 * dt;
+        if (pt.p.y < 0.01) pt.reset();
+        pt.m.position.copy(pt.p);
+        pt.m.rotation.set(time * pt.spin.x * 0.3, time * pt.spin.y * 0.3, time * pt.spin.z * 0.3);
+      }
+      // カメラと鹿威しの間に入ったら消す
+      const dir = target.clone().sub(cam);
+      const distToTarget = dir.length();
+      const ray = new THREE.Ray(cam, dir.normalize());
+      const b = fade < 0.5 ? boxWide : box;
+      const hp = ray.intersectBox(b, new THREE.Vector3());
+      const hit = b.containsPoint(cam) || (hp && hp.distanceTo(cam) < distToTarget);
+      fade += ((hit ? 0 : 1) - fade) * Math.min(dt * 4, 1);
+      const transparent = fade < 0.99;
+      for (const m of mats) {
+        // transparent は最初から true に固定（切り替えると描画プログラムの作り直しで画面が止まる）
+        if (!m.transparent) { m.transparent = true; m.needsUpdate = true; }
         m.opacity = fade;
         m.depthWrite = !transparent;
       }

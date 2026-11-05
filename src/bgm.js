@@ -147,7 +147,22 @@ export class TaishoKotoBGM {
     }
   }
 
+  /** 使う音程の弦の音を、少しずつ前もって作っておく（初めて鳴る音で一瞬止まるのを防ぐ） */
+  prewarm() {
+    if (this.prewarmed) return;
+    this.prewarmed = true;
+    const semis = [...new Set([...SCALE, -12, -5, -7])];
+    const next = () => {
+      const s = semis.shift();
+      if (s === undefined) return;
+      this.pluck(freqOf(s));
+      setTimeout(next, 30);
+    };
+    next();
+  }
+
   start() {
+    this.prewarm();
     if (this.playing) return;
     this.playing = true;
     this.nextPhrase = this.ctx.currentTime + 0.6;

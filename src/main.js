@@ -349,6 +349,7 @@ function startGame() {
   applyGimmicks(g);
   updateHud();
   renderer.setMode('play');
+  renderer.randomizeCamera();   // 毎回違うアングルから始める
   showScreen(null);
 }
 
