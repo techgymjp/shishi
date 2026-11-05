@@ -6,6 +6,15 @@
   <meta name="theme-color" content="#16231d">
   <meta name="description" content="日本庭園の鹿威しを絶妙なタイミングで鳴らすワンタップゲーム">
   <title>鹿威しカコーン｜Japan Garden KAKOON!</title>
+  <!-- シェアしたときの表示（OGP） -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://techgymjp.github.io/shishi/">
+  <meta property="og:title" content="鹿威しカコーン｜Japan Garden KAKOON!">
+  <meta property="og:description" content="日本庭園の鹿威しを絶妙なタイミングで鳴らすワンタップゲーム / A one-tap timing game in a Japanese garden.">
+  <meta property="og:image" content="https://techgymjp.github.io/shishi/assets/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
     { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
@@ -13,7 +22,7 @@
 </head>
 <body>
   <div id="app">
-    <canvas id="garden" aria-label="日本庭園の鹿威し"></canvas>
+    <canvas id="garden" aria-label="日本庭園の鹿威し" data-i18n-aria></canvas>
     <div id="fx"></div>
 
     <!-- ゲーム画面のHUD -->
@@ -21,7 +30,7 @@
       <div class="hud-left"><span class="label">SCORE</span><span id="score">0</span></div>
       <div class="hud-center">
         <span id="combo-wrap"><span id="combo">0</span><span class="label"> COMBO</span></span>
-        <span id="lives" aria-label="残り"></span>
+        <span id="lives" aria-label="残り" data-i18n-aria></span>
       </div>
       <div class="hud-right"><span class="label">BEST</span><span id="hud-best">0</span><span id="level" class="level"></span></div>
     </div>
@@ -35,28 +44,28 @@
 
     <!-- 読み込み中 -->
     <section id="loading-screen" class="screen active">
-      <p class="kicker">Japan Garden KAKOON!</p>
-      <p class="loading-title">鹿威しカコーン</p>
+      <p class="kicker" data-i18n>Japan Garden KAKOON!</p>
+      <p class="loading-title" data-i18n>鹿威しカコーン</p>
       <div class="progress"><div id="progress-bar"></div></div>
-      <p id="loading-text" class="loading-text">庭園を準備しています…</p>
+      <p id="loading-text" class="loading-text" data-i18n>庭園を準備しています…</p>
     </section>
 
     <!-- タイトル画面 -->
     <section id="title-screen" class="screen">
       <div class="title-block">
-        <p class="kicker">Japan Garden KAKOON!</p>
-        <h1>鹿威し<br>カコーン</h1>
-        <p class="tagline">鹿威しタイミングチャレンジ</p>
+        <p class="kicker" data-i18n>Japan Garden KAKOON!</p>
+        <h1 data-i18n-html>鹿威し<br>カコーン</h1>
+        <p class="tagline" data-i18n>鹿威しタイミングチャレンジ</p>
       </div>
       <div class="title-bottom">
         <p class="best-line">BEST SCORE <b id="best">0</b></p>
         <p id="title-name" class="title-name"></p>
         <button id="btn-start" class="btn primary big">START</button>
-        <p class="howto">水がこぼれて軽くなった竹筒が<b>石を打つ瞬間</b>にタップ<br><small>縮んでくる輪が石の輪と重なったとき</small></p>
+        <p class="howto" data-i18n-html>水がこぼれて軽くなった竹筒が<b>石を打つ瞬間</b>にタップ<br><small>縮んでくる輪が石の輪と重なったとき</small></p>
       </div>
       <div class="corner">
-        <button id="btn-sound" class="icon-btn" aria-label="サウンド切り替え">🔊</button>
-        <button id="btn-settings" class="icon-btn" aria-label="設定">⚙</button>
+        <button id="btn-sound" class="icon-btn" aria-label="サウンド切り替え" data-i18n-aria>🔊</button>
+        <button id="btn-settings" class="icon-btn" aria-label="設定" data-i18n-aria>⚙</button>
       </div>
     </section>
 
@@ -75,7 +84,14 @@
         </dl>
         <p id="r-title" class="new-title" hidden></p>
 
-        <button id="btn-retry" class="btn primary big">もう一度遊ぶ</button>
+        <button id="btn-retry" class="btn primary big" data-i18n>もう一度遊ぶ</button>
+        <button id="btn-share" class="btn share-btn"><span aria-hidden="true">↗</span> <span data-i18n>シェア</span></button>
+        <div id="share-menu" class="share-menu" hidden>
+          <a id="share-x" class="share-item" target="_blank" rel="noopener">X</a>
+          <a id="share-line" class="share-item" target="_blank" rel="noopener">LINE</a>
+          <a id="share-fb" class="share-item" target="_blank" rel="noopener">Facebook</a>
+          <button id="share-copy" class="share-item" data-i18n>コピー</button>
+        </div>
         <button id="btn-home" class="link-btn">HOME</button>
       </div>
     </section>
@@ -83,28 +99,35 @@
     <!-- 設定 -->
     <section id="settings-screen" class="screen">
       <div class="panel">
-        <h3>設定</h3>
-        <label class="row"><span>サウンド</span><input id="opt-sound" type="checkbox"></label>
-        <label class="row"><span>BGM（大正琴）</span><input id="opt-bgm" type="checkbox"></label>
-        <label class="row"><span>振動</span><input id="opt-vibe" type="checkbox"></label>
-        <label class="row"><span>練習（ギミック）</span>
-          <select id="opt-gimmick">
-            <option value="auto">自動（レベルで変化）</option>
-            <option value="none">なし</option>
-            <option value="rain">☔ 雨</option>
-            <option value="wind">🍃 風</option>
-            <option value="night">🌙 夜</option>
-            <option value="size">🎋 竹筒のサイズ</option>
-            <option value="twin">⇄ 2本の鹿威し</option>
-            <option value="all">すべて</option>
+        <h3 data-i18n>設定</h3>
+        <label class="row"><span data-i18n>サウンド</span><input id="opt-sound" type="checkbox"></label>
+        <label class="row"><span data-i18n>BGM（大正琴）</span><input id="opt-bgm" type="checkbox"></label>
+        <label class="row"><span data-i18n>振動</span><input id="opt-vibe" type="checkbox"></label>
+        <label class="row"><span>言語 / Language</span>
+          <select id="opt-lang">
+            <option value="auto" data-i18n>自動</option>
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
           </select>
         </label>
-        <h3>記録</h3>
+        <label class="row"><span data-i18n>練習（ギミック）</span>
+          <select id="opt-gimmick">
+            <option value="auto" data-i18n>自動（レベルで変化）</option>
+            <option value="none" data-i18n>なし</option>
+            <option value="rain" data-i18n>☔ 雨</option>
+            <option value="wind" data-i18n>🍃 風</option>
+            <option value="night" data-i18n>🌙 夜</option>
+            <option value="size" data-i18n>🎋 竹筒のサイズ</option>
+            <option value="twin" data-i18n>⇄ 2本の鹿威し</option>
+            <option value="all" data-i18n>すべて</option>
+          </select>
+        </label>
+        <h3 data-i18n>記録</h3>
         <dl id="records" class="records"></dl>
-        <h3>称号</h3>
+        <h3 data-i18n>称号</h3>
         <ul id="titles" class="titles"></ul>
-        <button id="btn-settings-close" class="btn">閉じる</button>
-        <button id="btn-reset" class="link-btn danger">記録をリセット</button>
+        <button id="btn-settings-close" class="btn" data-i18n>閉じる</button>
+        <button id="btn-reset" class="link-btn danger" data-i18n>記録をリセット</button>
       </div>
     </section>
 

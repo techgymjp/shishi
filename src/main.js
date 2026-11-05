@@ -1,5 +1,6 @@
 // 鹿威しカコーン（Japan Garden KAKOON!） ゲーム全体の状態管理
 import { Sound } from './audio.js';
+import { t, setLang, detectLang, applyDom, getLang } from './i18n.js';
 import { Scene3D } from './scene3d.js';
 import { ShishiOdoshi } from './shishi.js';
 import {
@@ -29,7 +30,9 @@ const el = {
   btnRetry: $('btn-retry'), btnHome: $('btn-home'),
   optSound: $('opt-sound'), optVibe: $('opt-vibe'), records: $('records'), titles: $('titles'),
   btnSettingsClose: $('btn-settings-close'), btnReset: $('btn-reset'),
-  optGimmick: $('opt-gimmick'), banner: $('banner'), optBgm: $('opt-bgm'),
+  optGimmick: $('opt-gimmick'), banner: $('banner'), optBgm: $('opt-bgm'), optLang: $('opt-lang'),
+  btnShare: $('btn-share'), shareMenu: $('share-menu'), shareX: $('share-x'), shareLine: $('share-line'),
+  shareFb: $('share-fb'), shareCopy: $('share-copy'),
 };
 
 // ---------- 端末内保存（読み書きに失敗しても遊べるように） ----------
@@ -38,7 +41,9 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 保存不可 */ } },
 };
 let stats = store.get('kakoon.stats', emptyStats());
-const settings = store.get('kakoon.settings', { sound: true, bgm: true, vibe: true, gimmick: 'auto' });
+const settings = store.get('kakoon.settings', { sound: true, bgm: true, vibe: true, gimmick: 'auto', lang: 'auto' });
+setLang(detectLang(settings.lang));
+applyDom();
 
 // ---------- 主要オブジェクト ----------
 const sound = new Sound();
@@ -96,7 +101,7 @@ function applyGimmicks(g, announce = false) {
   for (const u of units) if (u.active) u.sim.setParams(cycleParams(lv, game.combo, Math.random, gimmicks));
   if (announce) {
     const added = Object.keys(GIMMICK_INFO).filter((k) => (k === 'size' ? gimmicks.size !== 1 && gimmicks.size !== prev.size : gimmicks[k] && !prev[k]));
-    showBanner(`Lv.${lv} ${tierFor(lv)}`, added.map((k) => `${GIMMICK_INFO[k].icon} ${k === 'size' ? (gimmicks.size > 1 ? '太い竹筒' : '細い竹筒') : GIMMICK_INFO[k].desc}`));
+    showBanner(`Lv.${lv} ${t(tierFor(lv))}`, added.map((k) => `${GIMMICK_INFO[k].icon} ${k === 'size' ? t(gimmicks.size > 1 ? '太い竹筒' : '細い竹筒') : t(GIMMICK_INFO[k].desc)}`));
   }
 }
 
@@ -137,7 +142,7 @@ function onTap() {
     const i = fills.indexOf(Math.max(...fills));
     if (i >= 0 && fills[i] >= 0) renderer.nudgeTube('dip', 1, fills[i], i);
     else renderer.nudgeTube('wobble', 0.8, 0, 0);
-    showHint('まだ');
+    showHint(t('まだ'));
     return;
   }
 
@@ -159,7 +164,7 @@ function applyResult(result, delta, i = 0) {
     game.misses += 1;
     game.combo = 0;
     game.perfectStreak = 0;
-    showJudge('MISS', delta < 0 ? 'はやい' : 'おそい');
+    showJudge('MISS', t(delta < 0 ? 'はやい' : 'おそい'));
     vibrate([40, 60, 40]);
   } else {
     game.combo += 1;
@@ -177,9 +182,9 @@ function applyResult(result, delta, i = 0) {
       vibrate(15);
     }
     game.score += pointsFor(result, game.combo);
-    showJudge(result, result === 'PERFECT' && game.perfectStreak > 1 ? `${game.perfectStreak}連続` : '');
+    showJudge(result, result === 'PERFECT' && game.perfectStreak > 1 ? t('{0}連続', game.perfectStreak) : '');
     const m = comboMultiplier(game.combo);
-    if (m > 1 && comboMultiplier(game.combo - 1) < m) flashMultiplier(`コンボ倍率 ×${m.toFixed(1)}`);
+    if (m > 1 && comboMultiplier(game.combo - 1) < m) flashMultiplier(t('コンボ倍率 ×{0}', m.toFixed(1)));
   }
   renderer.judgeEffect(result, i, game.perfectStreak);
   sound.judge(result, game.perfectStreak);
@@ -255,13 +260,13 @@ function updateHud(bump = false) {
   el.lives.textContent = '●'.repeat(left) + '○'.repeat(MAX_MISSES - left);
   el.hudBest.textContent = Math.max(stats.best, game.score).toLocaleString();
   const lv = levelFor(game.successes);
-  el.level.textContent = `Lv.${lv} ${tierFor(lv)} ${gimmickIcons()}`;
+  el.level.textContent = `Lv.${lv} ${t(tierFor(lv))} ${gimmickIcons()}`;
 }
 
 function updateTitleScreen() {
   el.best.textContent = stats.best.toLocaleString();
-  const t = currentTitle(stats);
-  el.titleName.textContent = t ? `称号：${t.name}` : '';
+  const ti = currentTitle(stats);
+  el.titleName.textContent = ti ? t('称号：{0}', t(ti.name)) : '';
   el.btnSound.textContent = settings.sound ? '🔊' : '🔇';
 }
 
@@ -371,8 +376,9 @@ function showResult() {
   el.rGreat.textContent = game.greats;
   el.rCombo.textContent = game.maxCombo;
   el.rTitle.hidden = newTitles.length === 0;
-  el.rTitle.textContent = newTitles.length ? `称号獲得：${newTitles.map((t) => t.name).join('・')}` : '';
+  el.rTitle.textContent = newTitles.length ? t('称号獲得：{0}', newTitles.map((x) => t(x.name)).join(getLang() === 'en' ? ', ' : '・')) : '';
   game.mode = 'result';
+  el.shareMenu.hidden = true;
   updateHud();
   showScreen('result');
 }
@@ -395,24 +401,66 @@ function showTitleGarden() {
   for (const u of units) if (u.active) u.sim.setParams(cycleParams(3, 0, Math.random, g));
 }
 
+// ---------- シェア ----------
+const SHARE_URL = 'https://techgymjp.github.io/shishi/';
+
+function shareText() {
+  return t('鹿威しカコーンで{0}点！ PERFECT {1}回・最大コンボ {2} #鹿威しカコーン',
+    game.score.toLocaleString(), game.perfects, game.maxCombo);
+}
+
+async function onShare() {
+  const text = shareText();
+  // スマホ：端末の共有メニュー（LINE・X・メッセージなど）
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: t('鹿威しカコーン'), text, url: SHARE_URL });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // ユーザーが閉じた
+    }
+  }
+  // それ以外：各サービスへのリンクとコピー
+  const enc = encodeURIComponent;
+  el.shareX.href = `https://twitter.com/intent/tweet?text=${enc(text)}&url=${enc(SHARE_URL)}`;
+  el.shareLine.href = `https://social-plugins.line.me/lineit/share?url=${enc(SHARE_URL)}&text=${enc(text)}`;
+  el.shareFb.href = `https://www.facebook.com/sharer/sharer.php?u=${enc(SHARE_URL)}`;
+  el.shareMenu.hidden = !el.shareMenu.hidden;
+}
+
+async function copyShare() {
+  const text = `${shareText()} ${SHARE_URL}`;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch { /* コピー不可 */ }
+    ta.remove();
+  }
+  el.shareCopy.textContent = t('コピーしました');
+  setTimeout(() => { el.shareCopy.textContent = t('コピー'); }, 1600);
+}
+
 // ---------- 設定 ----------
 function openSettings() {
   el.optSound.checked = settings.sound;
   el.optVibe.checked = settings.vibe;
   el.optBgm.checked = settings.bgm;
   el.optGimmick.value = settings.gimmick || 'auto';
+  el.optLang.value = settings.lang || 'auto';
   const rows = [
-    ['累計プレイ回数', stats.plays],
-    ['累計スコア', stats.totalScore],
-    ['最高スコア', stats.best],
-    ['PERFECT累計', stats.perfectTotal],
-    ['最大コンボ', stats.maxCombo],
-    ['最高連続PERFECT', stats.bestPerfectStreak],
+    [t('累計プレイ回数'), stats.plays],
+    [t('累計スコア'), stats.totalScore],
+    [t('最高スコア'), stats.best],
+    [t('PERFECT累計'), stats.perfectTotal],
+    [t('最大コンボ'), stats.maxCombo],
+    [t('最高連続PERFECT'), stats.bestPerfectStreak],
   ];
   el.records.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v.toLocaleString()}</dd>`).join('');
   const got = new Set(unlockedTitles(stats).map((t) => t.id));
-  el.titles.innerHTML = TITLES.map((t) =>
-    `<li class="${got.has(t.id) ? 'got' : ''}"><span>${got.has(t.id) ? '★' : '☆'} ${t.name}</span><span>${t.desc}</span></li>`).join('');
+  el.titles.innerHTML = TITLES.map((ti) =>
+    `<li class="${got.has(ti.id) ? 'got' : ''}"><span>${got.has(ti.id) ? '★' : '☆'} ${t(ti.name)}</span><span>${t(ti.desc)}</span></li>`).join('');
   el.settings.classList.add('active');
 }
 
@@ -438,6 +486,8 @@ document.addEventListener('keydown', (e) => {
   }
 });
 el.btnStart.addEventListener('click', startGame);
+el.btnShare.addEventListener('click', onShare);
+el.shareCopy.addEventListener('click', copyShare);
 el.btnRetry.addEventListener('click', () => { if (game.mode === 'result') startGame(); });
 el.btnHome.addEventListener('click', () => { if (game.mode === 'result') goHome(); });
 el.btnSound.addEventListener('click', () => setSound(!settings.sound));
@@ -451,13 +501,22 @@ el.optBgm.addEventListener('change', () => {
   sound.unlock();
   sound.setBgm(settings.bgm);
 });
+el.optLang.addEventListener('change', () => {
+  settings.lang = el.optLang.value;
+  store.set('kakoon.settings', settings);
+  setLang(detectLang(settings.lang));
+  applyDom();
+  updateTitleScreen();
+  updateHud();
+  openSettings();
+});
 el.optGimmick.addEventListener('change', () => {
   settings.gimmick = el.optGimmick.value;
   store.set('kakoon.settings', settings);
   if (game.mode === 'title') showTitleGarden();
 });
 el.btnReset.addEventListener('click', () => {
-  if (!confirm('記録と称号をすべてリセットしますか？')) return;
+  if (!confirm(t('記録と称号をすべてリセットしますか？'))) return;
   stats = emptyStats();
   store.set('kakoon.stats', stats);
   openSettings();
@@ -476,7 +535,7 @@ requestAnimationFrame(frame);
 renderer.load((p) => { el.progress.style.width = `${Math.round(p * 100)}%`; })
   .catch((err) => {
     console.error(err);
-    el.loadingText.textContent = '3D表示を準備できませんでした。ページを再読み込みしてください。';
+    el.loadingText.textContent = t('3D表示を準備できませんでした。ページを再読み込みしてください。');
     throw err;
   })
   .then(() => {
