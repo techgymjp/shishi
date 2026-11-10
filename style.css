@@ -265,3 +265,7 @@ h3 { margin: 8px 0 0; font-size: 15px; color: var(--muted); letter-spacing: .2em
 
 /* アプリでバナー広告が出ている画面では、下に広告の分だけ余白をとる */
 #app.banner-on .screen { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+
+/* Web 版だけ：Android アプリ版（Google Play）へのリンク */
+.store-link { font: 600 12px system-ui, sans-serif; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; padding: 4px 8px; }
+.store-link:hover { color: var(--text); }

@@ -104,6 +104,7 @@ const EN = {
   '広告を読み込めませんでした': 'The ad could not be loaded',
   'コンティニュー {0} 回': 'Continued {0}×',
   '（コンティニュー {0} 回）': ' (continued {0}×)',
+  '▶ Android アプリ版（Google Play）': '▶ Get the Android app (Google Play)',
   // シェア
   '鹿威しカコーンで{0}点！ PERFECT {1}回・最大コンボ {2} #鹿威しカコーン':
     'I scored {0} in Japan Garden KAKOON! PERFECT ×{1}, max combo {2} #KAKOON',
