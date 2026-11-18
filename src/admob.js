@@ -12,7 +12,7 @@ const UNITS = {
     },
     // 本番の広告ユニット（AdMob の「鹿威しカコーン」Android）。空の種類は本番ビルドでは出さない
     production: {
-      interstitial: 'ca-app-pub-6411535997477460/2272272597',
+      interstitial: 'ca-app-pub-6411535997477460/2806368875',
       rewarded: 'ca-app-pub-6411535997477460/9959190926',
       banner: 'ca-app-pub-6411535997477460/4972212262',
     },
